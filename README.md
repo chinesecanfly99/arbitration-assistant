@@ -27,17 +27,31 @@ python -m arb.pdf "同上那句话" -o 报告.pdf   # 导出 PDF（自检不过�
 
 - 只要 **Python 3.10+ 标准库**，不装任何第三方包也能跑（网页版、CLI、演示模式、法条检索都是 stdlib）
 - **全程不需要联网**：法条已落成本地 jsonl，模型层有 key 才走，没 key 走规则抽取——断网也能完整演示
-- 本机沙箱禁止写 site-packages，所以 pytest 装在项目内：
+
+## clone 后直接跑测试（零安装）
+
+```bash
+git clone <仓库地址> && cd arbitration_assistant
+python run_tests.py          # → 282 passed
+```
+
+不用 pip、不用联网：pytest 9.2.0 和它的纯 Python 依赖（pluggy / iniconfig / packaging / colorama + `py` shim）已经放在 `vendor/pkgs/`（2.3 MB）。`run_tests.py` 只做三件事：把 `src`、`vendor/pkgs` 加进 `sys.path`，`chdir` 到仓库根（让 `pytest.ini` 生效），然后调用 `pytest.main()`——**它不 spawn 子进程**，所以在不能装包的机器上也能跑。
+
+想按常规方式装也行（有覆盖率报告）：
 
 ```powershell
 pip install --target .libs pytest pytest-cov
 $env:PYTHONPATH = ".libs"; python -m pytest -q --cov=arb
 ```
 
+> 本机沙箱禁止写 site-packages，所以上面用 `--target .libs`；`.libs/` 在 `.gitignore` 里，不进仓库。
+
 ## 目录
 
 ```
 arbitration_assistant/
+├── run_tests.py              # ★ 零安装跑测试（clone → python run_tests.py → 282 passed）
+├── vendor/pkgs/              # 随仓库携带的 pytest（纯 Python，2.3 MB），只为免安装
 ├── config/city.json          # 城市口径参数（社平工资等），改城市只改这里
 ├── schema.json               # 前后端与模型层共用的唯一字段定义
 ├── src/arb/
