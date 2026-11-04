@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "劳动仲裁案件要素",
+  "description": "前后端与模型层共用的唯一字段定义。改字段名先改这里，再改代码。",
+  "type": "object",
+  "properties": {
+    "city": {
+      "type": "string",
+      "description": "案件所属城市，决定社平工资等参数口径",
+      "default": "深圳"
+    },
+    "hire_date": {
+      "type": "string",
+      "format": "date",
+      "description": "入职日期 YYYY-MM-DD"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "离职日期；仍在职则留空"
+    },
+    "monthly_wage": {
+      "type": "number",
+      "description": "离职前 12 个月平均应得工资（元/月），含奖金津贴，不含加班费"
+    },
+    "termination": {
+      "type": "string",
+      "enum": ["legal_termination", "mutual_agreement", "employee_resign", "illegal_dismissal"],
+      "description": "解除方式：合法解除/协商一致/主动辞职/违法解除"
+    },
+    "social_avg_wage", "has_written_contract": {
+      "type": "boolean",
+      "description": "是否签过书面劳动合同"
+    },
+    "contract_signed_date": {
+      "type": ["string", "null"],
+      "format": "date",
+      "description": "若为补签，填补签日期；未签则留空"
+    },
+    "overtime_workday_hours": {
+      "type": "number",
+      "description": "工作日加班小时数（150%）",
+      "default": 0
+    },
+    "overtime_restday_hours": {
+      "type": "number",
+      "description": "休息日加班小时数（200%，已调休则为 0）",
+      "default": 0
+    },
+    "overtime_holiday_hours": {
+      "type": "number",
+      "description": "法定节假日加班小时数（300%）",
+      "default": 0
+    },
+    "restday_compensated_by_leave": {
+      "type": "boolean",
+      "description": "休息日加班是否已安排补休",
+      "default": false
+    },
+    "total_work_years": {
+      "type": ["number", "null"],
+      "description": "累计工作年限（含之前单位），用于年假档位；为空则用本单位工龄近似"
+    },
+    "taken_annual_leave_days": {
+      "type": "number",
+      "description": "当年已休年假天数",
+      "default": 0
+    },
+    "unused_annual_leave_days": {
+      "type": ["number", "null"],
+      "description": "已知未休天数则直接填，跳过折算"
+    },
+    "unpaid_wages": {
+      "type": "number",
+      "description": "拖欠工资金额（元）",
+      "default": 0
+    }
+  },
+  "required": ["hire_date", "monthly_wage", "termination"]
+}

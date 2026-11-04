@@ -1,0 +1,15 @@
+# 本地依赖与缓存（pytest 装在项目内时产生）
+.libs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+
+# 临时文件
+_tmp_profile/
+_tmp_report.html
+uploads/
+*.log
+
+# 导出的临时 PDF（样例在 docs/sample_report.pdf，保留）
+/tmp/

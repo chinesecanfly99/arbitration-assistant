@@ -1,0 +1,14 @@
+{
+  "city": "深圳",
+  "province": "广东",
+  "social_avg_wage": null,
+  "social_avg_wage_note": "填深圳市统计局公布的上年度城镇非私营单位在岗职工月平均工资（元/月）。填 null 时不做 3 倍封顶计算，并在结果里提示。",
+  "min_wage": null,
+  "min_wage_note": "深圳市最低工资标准（元/月），用于校验工资是否低于下限。",
+  "arbitration_commission": "深圳市劳动人事争议仲裁院",
+  "jurisdiction_note": "管辖：劳动合同履行地或用人单位所在地的劳动人事争议仲裁委员会（《劳动争议调解仲裁法》第 21 条）。",
+  "fee_note": "劳动争议仲裁不收费（《劳动争议调解仲裁法》第 53 条）。",
+  "timeline_note": "仲裁庭应自受理之日起 45 日内结束，案情复杂经批准可延长 15 日（第 43 条）。",
+  "updated_at": "2026-11-04",
+  "verify_required": true
+}

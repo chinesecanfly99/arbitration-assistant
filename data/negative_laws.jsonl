@@ -1,0 +1,20 @@
+{"id": "neg-01", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第一百二十条", "fake_claim": "用人单位解除劳动合同的，应当另行支付三个月工资作为安抚金。", "why": "《劳动合同法》共 98 条，不存在第 120 条"}
+{"id": "neg-02", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第九十九条", "fake_claim": "劳动者工作满五年自动转为无固定期限劳动合同。", "why": "《劳动合同法》共 98 条，不存在第 99 条"}
+{"id": "neg-03", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第五十条", "fake_claim": "用人单位解除合同时应支付三个月工资的慰问金。", "why": "第 50 条讲的是出具证明、办理档案和社保转移，没有慰问金"}
+{"id": "neg-04", "slug": "labor_law", "law": "劳动法", "article_no": "第一百一十一条", "fake_claim": "用人单位拖欠工资的，按拖欠金额的三倍支付赔偿。", "why": "《劳动法》共 107 条，不存在第 111 条"}
+{"id": "neg-05", "slug": "arbitration_law", "law": "劳动争议调解仲裁法", "article_no": "第六十条", "fake_claim": "仲裁裁决作出后，劳动者可在三十日内向上级仲裁委申诉。", "why": "《劳动争议调解仲裁法》共 54 条，不存在第 60 条"}
+{"id": "neg-06", "slug": "arbitration_law", "law": "劳动争议调解仲裁法", "article_no": "第五十五条", "fake_claim": "仲裁申请费按争议金额的百分之一收取。", "why": "共 54 条，不存在第 55 条；且第 53 条明确规定仲裁不收费"}
+{"id": "neg-07", "slug": "arbitration_law", "law": "劳动争议调解仲裁法", "article_no": "第二十七条", "fake_claim": "劳动争议申请仲裁的时效期间为两年。", "why": "第 27 条真实存在，但时效是**一年**，此条为篡改数字"}
+{"id": "neg-08", "slug": "annual_leave_regulation", "law": "职工带薪年休假条例", "article_no": "第十二条", "fake_claim": "未休年假按日工资的四百percent补偿。", "why": "该条例共 10 条，不存在第 12 条"}
+{"id": "neg-09", "slug": "annual_leave_impl", "law": "企业职工带薪年休假实施办法", "article_no": "第二十五条", "fake_claim": "离职时未休年假自动作废，不再补偿。", "why": "该办法共 19 条，不存在第 25 条"}
+{"id": "neg-10", "slug": "annual_leave_regulation", "law": "职工带薪年休假条例", "article_no": "第五条", "fake_claim": "未休年假只按正常工资的 100% 补偿。", "why": "第 5 条真实存在，但规定的是按日工资收入的 300% 支付，含正常工作期间工资"}
+{"id": "neg-11", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第八十二条", "fake_claim": "未签书面合同二倍工资最多支付二十四个月。", "why": "第 82 条真实存在，但二倍工资最多 11 个月（满一年视为无固定期限合同）"}
+{"id": "neg-12", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第四十七条", "fake_claim": "六个月以上不满一年的，按半个月工资计算经济补偿。", "why": "第 47 条真实存在，但六个月以上不满一年应按一年计算（一个月工资）"}
+{"id": "neg-13", "slug": "labor_law", "law": "劳动法", "article_no": "第四十四条", "fake_claim": "休息日安排工作又不能安排补休的，支付 150% 工资报酬。", "why": "第 44 条真实存在，但休息日是 200%，150% 是工作日延长工时"}
+{"id": "neg-14", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第四十八条", "fake_claim": "违法解除的，劳动者可要求三倍经济补偿。", "why": "第 48 条讲的是继续履行或赔偿金，二倍标准在第 87 条，不存在三倍"}
+{"id": "neg-15", "slug": "labor_contract_law", "law": "劳动合同法", "article_no": "第九十条", "fake_claim": "用人单位违法解除应支付劳动者精神损害赔偿金。", "why": "第 90 条是劳动者违法解除的赔偿责任，且法律未设精神损害赔偿"}
+{"id": "neg-16", "slug": "social_insurance_law", "law": "社会保险法", "article_no": "第一百二十条", "fake_claim": "单位未缴社保的，劳动者可直接要求双倍工资。", "why": "《社会保险法》共 98 条，不存在第 120 条；社保补缴走社保征收机构，不属仲裁"}
+{"id": "neg-17", "slug": "labor_arbitration_special_rules", "law": "劳动仲裁特别程序规定", "article_no": "第七条", "fake_claim": "劳动者申请仲裁须先经过单位内部调解并取得调解书。", "why": "我国没有这部法规；且调解是自愿程序，不是仲裁前置"}
+{"id": "neg-18", "slug": "labor_contract_regulation", "law": "劳动合同法实施条例", "article_no": "第五十五条", "fake_claim": "经济补偿年限最高不超过十二年，任何情形均适用。", "why": "该条例共 38 条，不存在第 55 条；12 年上限只适用于月工资超过社平三倍的情形"}
+{"id": "neg-19", "slug": "labor_law", "law": "劳动法", "article_no": "第五十条", "fake_claim": "工资可以实物折抵发放。", "why": "第 50 条真实存在，但规定工资应当以货币形式按月支付，不得克扣或无故拖欠"}
+{"id": "neg-20", "slug": "arbitration_law", "law": "劳动争议调解仲裁法", "article_no": "第四十三条", "fake_claim": "仲裁庭应当在受理后 90 日内作出裁决，不得延长。", "why": "第 43 条真实存在，规定 45 日内结束，复杂案件可延长 15 日"}
