@@ -21,6 +21,8 @@ def server():
     t.start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
+    srv.server_close()      # 不关会让解释器退不干净、报 ResourceWarning: unclosed socket
+    t.join(timeout=5)       # 等线程真的停下，否则跑测试时偶发"1 warning"
 
 
 def fetch(url, data=None):
