@@ -12,6 +12,7 @@ python -m arb.cli "2020年3月1日入职，月薪9000，一直没签书面合同
 python -m arb.web            # 打开 http://127.0.0.1:8765
 python -m arb.demo           # 三屏演示：能算清的 / 说不清的 / 不该它管的（录视频用）
 python -m arb.pdf "同上那句话" -o 报告.pdf   # 导出 PDF（自检不过会返回退出码 1）
+python run_tests.py          # 跑测试（零安装，见下一节）
 ```
 
 想快速判断这个项目值不值得看，按这个顺序读：
@@ -31,9 +32,12 @@ python -m arb.pdf "同上那句话" -o 报告.pdf   # 导出 PDF（自检不过�
 ## clone 后直接跑测试（零安装）
 
 ```bash
-git clone <仓库地址> && cd arbitration_assistant
+git clone https://github.com/chinesecanfly99/arbitration-assistant.git
+cd arbitration-assistant
 python run_tests.py          # → 282 passed
 ```
+
+（仓库根目录就是项目根目录，`run_tests.py` 就在第一层。）
 
 不用 pip、不用联网：pytest 9.2.0 和它的纯 Python 依赖（pluggy / iniconfig / packaging / colorama + `py` shim）已经放在 `vendor/pkgs/`（2.3 MB）。`run_tests.py` 只做三件事：把 `src`、`vendor/pkgs` 加进 `sys.path`，`chdir` 到仓库根（让 `pytest.ini` 生效），然后调用 `pytest.main()`——**它不 spawn 子进程**，所以在不能装包的机器上也能跑。
 
