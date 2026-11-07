@@ -25,6 +25,7 @@ python run_tests.py          # 跑测试（零安装，见下一节）
 
 | 你是谁 | 先读哪份 |
 | --- | --- |
+| **接手的同学 / 另一个 AI** | [`HANDOVER.md`](HANDOVER.md)（交接文档：怎么跑、哪五条不能碰、还剩什么） |
 | 评委 / 非技术读者 | [`docs/one_pager.md`](docs/one_pager.md)（一页纸评测报告） |
 | 要录演示视频的人 | [`docs/demo_script.md`](docs/demo_script.md)（5 分钟逐句分镜 + 断网预案） |
 | 要彩排答辩的人 | [`docs/rehearsal.md`](docs/rehearsal.md)（3 遍演练清单 + 8 个必被问的问题） |
