@@ -4,7 +4,7 @@
 
 为什么不用 pip：这台机器/课程环境不一定能装包，而且我们只是要跑测试。
 pytest 9.2.0 和它的纯 Python 依赖已经放在 vendor/pkgs 里（约 2.3 MB），
-再加一个 `py` shim，够跑 `tests/` 下的 282 条用例。
+再加一个 `py` shim，够跑 `tests/` 下的全部用例。
 
 如果你本机有 pytest（或照 README 用 pip 装到 .libs），会优先用你自己的版本。
 """
@@ -21,7 +21,7 @@ def ensure(path):
 
 ensure(os.path.join(ROOT, "src"))
 ensure(os.path.join(ROOT, "vendor", "pkgs"))
-ensure(os.path.join(ROOT, ".libs"))          # 自装的优先（放最后，前面的先命中）
+ensure(os.path.join(ROOT, ".libs"))          # 每次 insert(0)，所以 .libs 排在最先 → 自装的优先
 
 os.chdir(ROOT)                                # 让 pytest.ini 的 testpaths/pythonpath 生效
 

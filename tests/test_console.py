@@ -81,16 +81,25 @@ def test_no_hardcoded_absolute_paths_in_src():
 
 
 def test_zero_install_test_runner_exists_and_is_runnable():
-    """run_tests.py 是"一条命令跑测试"的入口，它必须存在、且不依赖 pip 装的东西。"""
+    """run_tests.py 是"一条命令跑测试"的入口，它必须存在、且不依赖 pip 装的东西。
+
+    注意：**不能**给子进程传 `--no-cov`。vendor/pkgs 里没有 pytest-cov，
+    传这个参数 pytest 会以退出码 4（usage error）结束——那正是"零安装"路径的真实形态，
+    测试自己必须按零安装的方式去调它。
+    """
     runner = os.path.join(ROOT, "run_tests.py")
     assert os.path.exists(runner)
     text = io.open(runner, encoding="utf-8").read()
     assert "vendor" in text and "pytest" in text
     proc = subprocess.run(
-        [sys.executable, runner, "--collect-only", "-q", "--no-cov"],
+        [sys.executable, runner, "--collect-only"],
         cwd=ROOT, capture_output=True, timeout=120,
+        env={**os.environ, "PYTHONPATH": ""},
     )
-    assert proc.returncode == 0, proc.stdout.decode("utf-8", "replace")[-2000:]
+    assert proc.returncode == 0, (
+        "零安装跑测试失败（退出码 %d）：\n%s" % (
+            proc.returncode, proc.stdout.decode("utf-8", "replace")[-1500:])
+    )
     assert b"test" in proc.stdout.lower()
 
 
