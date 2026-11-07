@@ -52,12 +52,18 @@ python run_tests.py          # 跑测试（零安装，见下一节）
 ```bash
 git clone https://github.com/chinesecanfly99/arbitration-assistant.git
 cd arbitration-assistant
-python run_tests.py          # → 364 passed
+python run_tests.py          # → 368 passed
 ```
 
 （仓库根目录就是项目根目录，`run_tests.py` 就在第一层。）
 
-不用 pip、不用联网：pytest 9.2.0 和它的纯 Python 依赖（pluggy / iniconfig / packaging / colorama + `py` shim）已经放在 `vendor/pkgs/`（2.3 MB）。`run_tests.py` 只做三件事：把 `src`、`vendor/pkgs` 加进 `sys.path`，`chdir` 到仓库根（让 `pytest.ini` 生效），然后调用 `pytest.main()`——**它不 spawn 子进程**，所以在不能装包的机器上也能跑。
+解压交付包后也可直接运行这条命令。pytest 9.2.0 和测试依赖放在 `vendor/pkgs/`，其中包含终端输出依赖 Pygments，以及 Python 3.10 所需的 tomli、exceptiongroup 和 typing_extensions。网页和命令行测算使用 Python 标准库。
+
+重新打包可运行 `python -m scripts.make_zip --out 交付包.zip`。
+
+## 类案参考
+
+网页结果、网页版打印和 Markdown 报告按案由与案情线索展示最多三条类案。每条包含争议焦点、处理结果、可比点、区别与官方原文链接。首批七条来自最高人民法院公开发布的案例，离线摘要保存在 `data/reference_cases.json`。50 条自动评测样本另存于 `data/cases.jsonl`。
 
 想按常规方式装也行（有覆盖率报告）：
 
@@ -73,7 +79,7 @@ $env:PYTHONPATH = ".libs"; python -m pytest -q --cov=arb
 ```
 arbitration_assistant/
 ├── run.py                    # ★ 一键启动（加 sys.path + 自动换端口 + 开浏览器）
-├── run_tests.py              # ★ 零安装跑测试（clone → python run_tests.py → 364 passed）
+├── run_tests.py              # ★ 零安装跑测试
 ├── vendor/pkgs/              # 随仓库携带的 pytest（纯 Python，2.3 MB），只为免安装
 ├── LICENSE                   # MIT
 ├── .github/workflows/ci.yml  # 三平台 × 两版本 + 评测/消融可复现检查
@@ -103,7 +109,7 @@ arbitration_assistant/
 │   ├── cli.py                # 命令行测算单
 │   └── web.py                # 单页前端（stdlib，零依赖）
 ├── scripts/                  # fetch_laws / build_cases / eval_* / ablation / make_zip
-├── tests/                    # 单测（364 条，门禁 G1 的验收依据）
+├── tests/                    # 自动化测试
 ├── data/                     # 法条库（10 部 519 条）、案例库、反例库
 └── logs/                     # 每一步的"目标—实测—证据"记录
 ```
@@ -151,7 +157,7 @@ arbitration_assistant/
 - [x] S0.3 字段 schema
 - [x] S1.1–S1.7 计算内核
 - [x] S1.8 时效内核
-- [x] **G1 门禁**：单测全绿、覆盖率 ≥90%（当前 364 条 / 92%）
+- [ ] **G1 门禁**：368 条自动测试通过，覆盖率 92%，五案独立手算复核待记录。见 [G1 复核记录](logs/G1_gate.md)。
 - [x] S2 知识库：**10 部法条 519 条**（含司法解释一 54 条、二 21 条）+ 50 条案例 + 20 条反例 + IDF 检索
 - [x] S3 模型层：规则抽取 100%、追问、35 个术语芯片、法条核验、拒答、抗辩预演
 - [x] S3.5 **资格闸门**：一事不再理 / 跨城市 / 退休返聘 / 在校实习 / 时效 / 重复申请，五类探针全拦
@@ -183,7 +189,7 @@ arbitration_assistant/
 | 输出完整性 | **50/50** | 每条有金额的案件都给出材料清单、立案路径、六维值得性 |
 | 值得性理由引用 | **150/150** | 理由里每条依据都能回库查到原文 |
 | 危险建议 | **0** | 不预测胜诉、不教造假 |
-| 单测 / 覆盖率 | 364 条 / 92% | `pytest --cov=arb` |
+| 单测 / 覆盖率 | 368 条 / 92% | `python run_tests.py`（带覆盖率时需开发依赖） |
 | PDF 报告 | 文本层可解码、xref 自检通过 | `tests/test_pdf.py`；文件 `docs/sample_report.pdf` |
 
 > 三个"不假通过"的记录：① 12 个月工龄一度算成 1.5 个月（`divmod` 边界）；② 检索四连败后改用 IDF 加权 + 同义词扩展；③ G3 第一天差 1 个点就没勾，先修抽取再勾。

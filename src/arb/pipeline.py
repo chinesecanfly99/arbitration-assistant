@@ -30,6 +30,7 @@ from .evidence import score as evidence_score
 from .extract import extract
 from .gates import one_final_award_note, qualify
 from .map import FIELD_LABELS
+from .reference_cases import recommend
 from .mock_hr import rehearsal
 from .scope import judge
 
@@ -254,6 +255,7 @@ def analyze(
         "citation_problems": [i["name"] for i in items if not i["cite_ok"]],
         "rehearsal": rehearsal(verdict.cause, fields),
         "types": sorted(types),
+        "reference_cases": recommend(types, story),
         "city": city_info,
         "evidence_score": ev,
         "materials": mats,

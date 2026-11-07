@@ -91,6 +91,16 @@ def render_markdown(r: dict) -> str:
             out.append(f"  - 说明：{it['note']}")
         out.append("")
 
+    if r.get("reference_cases"):
+        out.append("\n### 类案参考（按案由与案情线索选取）\n")
+        out.append("请结合本人证据与案件差异阅读。案例结果仅供参考。\n")
+        for case in r["reference_cases"]:
+            out.append(f"**{case['title']}** · [{case['source']}]({case['url']})")
+            for label, key in (("争议焦点", "focus"), ("处理结果", "result"),
+                               ("可比点", "compare"), ("区别", "distinguish")):
+                out.append(f"- {label}：{case[key]}")
+            out.append("")
+
     out.append("## 三、仲裁时效（别让权利睡过期）\n")
     out.append("| 请求 | 起算日 | 截止日 | 剩余天数 |")
     out.append("| --- | --- | --- | ---: |")

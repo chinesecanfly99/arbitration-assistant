@@ -28,7 +28,7 @@ DEFAULT_NAME = "劳动仲裁维权助手_交付包.zip"
 
 SKIP_DIRS = {".libs", ".libs_off", "__pycache__", ".pytest_cache", ".git", "_tmp_profile",
              "uploads", ".mypy_cache", ".ruff_cache", ".coverage_html"}
-SKIP_FILES = {"_tmp_report.html", ".coverage", "make_zip.py"}
+SKIP_FILES = {"_tmp_report.html", ".coverage"}
 SKIP_EXT = (".pyc", ".zip", ".log")
 
 # 放在项目上一级的规划文档，一起打进交付包（有就带，没有就算了）
@@ -79,6 +79,7 @@ def build(out: str) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    sys.path.insert(0, os.path.join(PROJ, "src"))
     from arb.console import enable_utf8
 
     enable_utf8()

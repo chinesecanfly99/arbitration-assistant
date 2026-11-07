@@ -19,6 +19,7 @@ def ensure(path):
         sys.path.insert(0, path)
 
 
+ensure(ROOT)
 ensure(os.path.join(ROOT, "src"))
 ensure(os.path.join(ROOT, "vendor", "pkgs"))
 ensure(os.path.join(ROOT, ".libs"))          # 每次 insert(0)，所以 .libs 排在最先 → 自装的优先

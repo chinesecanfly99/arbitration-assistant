@@ -466,6 +466,17 @@ def render_page(report: dict | None = None, story: str = "", error: str = "") ->
                 body.append(f'<details><summary>{esc(c["cite"])} 原文</summary><blockquote>{esc(c["text"])}</blockquote></details>')
         body.append("</div>")
 
+        if report.get("reference_cases"):
+            body.append('<div class="card"><h2>类案参考</h2>'
+                        '<p class="sub">按案由与案情线索选取。请结合本人证据与案件差异阅读。</p>')
+            for case in report["reference_cases"]:
+                body.append(f'<h3>{esc(case["title"])}</h3>')
+                for label, key in (("争议焦点", "focus"), ("处理结果", "result"),
+                                   ("可比点", "compare"), ("区别", "distinguish")):
+                    body.append(f'<p><b>{label}</b>　{esc(case[key])}</p>')
+                body.append(f'<p><a href="{esc(case["url"])}">{esc(case["source"])}</a></p>')
+            body.append("</div>")
+
         body.append('<div class="card"><h2>三、仲裁时效</h2><table><tr><th>请求</th><th>起算</th><th>截止</th><th class="num">剩余</th></tr>')
         for d in report["deadlines"]:
             left = "—" if d["days_left"] is None else ("已过期" if d["expired"] else f'{d["days_left"]} 天')

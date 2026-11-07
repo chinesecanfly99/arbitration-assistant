@@ -24,7 +24,7 @@ def test_collect_skips_heavy_and_private_dirs():
 def test_collect_includes_the_things_that_matter():
     arcs = [arc for _full, arc in make_zip.collect()]
     joined = "\n".join(arcs)
-    for need in ("README.md", "run.py", "run_tests.py", "LICENSE",
+    for need in ("README.md", "run.py", "run_tests.py", "LICENSE", "scripts/make_zip.py",
                  "src/arb/pipeline.py", "tests/test_city_gates.py",
                  "data/laws/labor_contract_law.jsonl"):
         assert any(a.endswith(need) for a in arcs), f"交付包缺 {need}"
