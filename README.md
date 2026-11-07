@@ -51,7 +51,7 @@ python run_tests.py          # 跑测试（零安装，见下一节）
 ```bash
 git clone https://github.com/chinesecanfly99/arbitration-assistant.git
 cd arbitration-assistant
-python run_tests.py          # → 351 passed
+python run_tests.py          # → 358 passed
 ```
 
 （仓库根目录就是项目根目录，`run_tests.py` 就在第一层。）
@@ -72,7 +72,7 @@ $env:PYTHONPATH = ".libs"; python -m pytest -q --cov=arb
 ```
 arbitration_assistant/
 ├── run.py                    # ★ 一键启动（加 sys.path + 自动换端口 + 开浏览器）
-├── run_tests.py              # ★ 零安装跑测试（clone → python run_tests.py → 351 passed）
+├── run_tests.py              # ★ 零安装跑测试（clone → python run_tests.py → 358 passed）
 ├── vendor/pkgs/              # 随仓库携带的 pytest（纯 Python，2.3 MB），只为免安装
 ├── LICENSE                   # MIT
 ├── .github/workflows/ci.yml  # 三平台 × 两版本 + 评测/消融可复现检查
@@ -102,7 +102,7 @@ arbitration_assistant/
 │   ├── cli.py                # 命令行测算单
 │   └── web.py                # 单页前端（stdlib，零依赖）
 ├── scripts/                  # fetch_laws / build_cases / eval_extract / eval_report / ablation
-├── tests/                    # 单测（351 条，门禁 G1 的验收依据）
+├── tests/                    # 单测（358 条，门禁 G1 的验收依据）
 ├── data/                     # 法条库（10 部 519 条）、案例库、反例库
 └── logs/                     # 每一步的"目标—实测—证据"记录
 ```
@@ -150,7 +150,7 @@ arbitration_assistant/
 - [x] S0.3 字段 schema
 - [x] S1.1–S1.7 计算内核
 - [x] S1.8 时效内核
-- [x] **G1 门禁**：单测全绿、覆盖率 ≥90%（当前 351 条 / 92%）
+- [x] **G1 门禁**：单测全绿、覆盖率 ≥90%（当前 358 条 / 92%）
 - [x] S2 知识库：**10 部法条 519 条**（含司法解释一 54 条、二 21 条）+ 50 条案例 + 20 条反例 + IDF 检索
 - [x] S3 模型层：规则抽取 100%、追问、35 个术语芯片、法条核验、拒答、抗辩预演
 - [x] S3.5 **资格闸门**：一事不再理 / 跨城市 / 退休返聘 / 在校实习 / 时效 / 重复申请，五类探针全拦
@@ -177,12 +177,16 @@ arbitration_assistant/
 | 试算模式金额命中 | **100%（50/50）** | 与金标准误差 <1 元；其中 8 条真比年假项，42 条按口径剔掉（故事没说天数→系统追问） |
 | 法条引用核验 | **84/84** | 每条 basis 都回法条库核对原文 |
 | 危险建议 | **0** | 不预测胜诉、不教造假 |
-| 单测 / 覆盖率 | 351 条 / 92% | `pytest --cov=arb` |
+| 单测 / 覆盖率 | 358 条 / 92% | `pytest --cov=arb` |
 | PDF 报告 | 文本层可解码、xref 自检通过 | `tests/test_pdf.py`；文件 `docs/sample_report.pdf` |
 
 > 三个"不假通过"的记录：① 12 个月工龄一度算成 1.5 个月（`divmod` 边界）；② 检索四连败后改用 IDF 加权 + 同义词扩展；③ G3 第一天差 1 个点就没勾，先修抽取再勾。
 > 第四个（本轮）：`city.py` / `gates.py` 写完但**没接进流水线**——覆盖率 0%、`social_avg_wage` 永远是 null。
 > 单测全绿 ≠ 功能接上了。这一轮补的就是"接线"，不是"再写一个模块"。
+> 第五个（也是本轮发现的）：`schema.json` 里有一行 `"social_avg_wage", "has_written_contract": {...}`，
+> 是**语法错误**的 JSON。因为它从来没被任何代码解析过（只有 `llm.py` 在 prompt 里提到路径），
+> 所以 282 条测试全绿也没能发现。现在 `tests/test_schema.py` 真的去解析它，
+> 并核对它和 `ClaimInput` 的字段是否一一对应——叫"唯一字段定义"的文件，必须有测试去读它。
 
 
 ## 消融实验：拆掉哪个部件，分数掉多少

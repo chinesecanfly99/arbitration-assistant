@@ -6,8 +6,8 @@
   "properties": {
     "city": {
       "type": "string",
-      "description": "案件所属城市，决定社平工资等参数口径",
-      "default": "深圳"
+      "description": "案件所属城市，决定社平工资/最低工资/一裁终局线口径。目前覆盖北京市、上海市、广州市、深圳市、杭州市；写其它城市会明说'未覆盖'，不套用别的城市数字",
+      "examples": ["深圳市", "北京市", "上海市", "广州市", "杭州市"]
     },
     "hire_date": {
       "type": "string",
@@ -28,9 +28,14 @@
       "enum": ["legal_termination", "mutual_agreement", "employee_resign", "illegal_dismissal"],
       "description": "解除方式：合法解除/协商一致/主动辞职/违法解除"
     },
-    "social_avg_wage", "has_written_contract": {
+    "social_avg_wage": {
+      "type": ["number", "null"],
+      "description": "当地上年度职工月平均工资（元/月），用于 3 倍封顶。通常由 data/city/*.json 自动带入，不要手填；为空表示按未封顶处理"
+    },
+    "has_written_contract": {
       "type": "boolean",
-      "description": "是否签过书面劳动合同"
+      "description": "是否签过书面劳动合同",
+      "default": true
     },
     "contract_signed_date": {
       "type": ["string", "null"],
