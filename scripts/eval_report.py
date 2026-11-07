@@ -146,6 +146,79 @@ def main() -> None:
         out_of_scope_ok += ok
         detail.append((story[:16] + "…", "不归仲裁" if got_out else "受理", "✅" if ok else "❌"))
 
+    # ---- 新增能力：资格闸门 / 材料 / 路径 / 值得性 ----
+    # 这几块是纯规则的，单测已经钉住了；这里要回答的是"在 50 条真实案件上，
+    # 它们到底有没有真的产出东西"——单测全绿但流水线没接上，正是上一轮踩过的坑。
+    gate_probes = [
+        ("2022年3月1日入职，月薪9000，2024年5月20日违法辞退我，仲裁裁决已经下来了",
+         "blocked", "fail", "一事不再理"),
+        ("2022年3月1日入职，月薪9000，2024年5月20日违法辞退我，已经申请劳动仲裁了",
+         "ok", "warn", "重复申请"),
+        ("我退休返聘，2022年3月1日入职，月薪9000，2024年5月20日被辞退",
+         "ok", "warn", "退休返聘"),
+        ("我大三实习，公司说不要我了，月薪3000，2024年5月20日",
+         "ok", "warn", "在校实习"),
+        ("我在深圳上班，公司注册在北京，2022年3月1日入职，月薪9000，2024年5月20日违法辞退我",
+         "ok", "warn", "跨城市"),
+    ]
+    gate_rows = []
+    gate_ok = 0
+    for story, want_run, want_gate, kind in gate_probes:
+        r = analyze(story, today=TODAY, mode="best_effort")
+        got_run = r.get("status", "—")
+        got_gate = (r.get("gates") or {}).get("status", "—")
+        # 两道都要对：流水线状态（blocked 时不许出金额）与闸门层的状态
+        ok = got_run == want_run and got_gate == want_gate
+        gate_ok += ok
+        gate_rows.append((kind, f"{want_run}/{want_gate}", f"{got_run}/{got_gate}", "✅" if ok else "❌"))
+
+    # 城市口径：覆盖的城市要真套上社平工资，没覆盖的要明说没覆盖
+    city_probes = [
+        ("我在深圳，2012年5月1日入职，月薪60000，2024年5月20日违法辞退我",
+         "covered", "深圳：3 倍封顶按 16157×3 生效"),
+        ("我在成都上班，2015年5月1日入职，月薪9000，2024年5月20日违法辞退我",
+         "uncovered", "成都：明说未覆盖，不套别人的数字"),
+    ]
+    city_rows = []
+    city_probe_ok = 0
+    for story, kind, label in city_probes:
+        r = analyze(story, today=TODAY, mode="best_effort")
+        avg = (r.get("fields") or {}).get("social_avg_wage")
+        said = " ".join(r.get("assumptions") or [])
+        if kind == "covered":
+            ok = bool(avg) and "3 倍封顶" in said
+        else:
+            ok = avg is None and "没有" in said and "成都" in said
+        city_probe_ok += ok
+        city_rows.append((label, "✅" if ok else "❌", f"社平工资={avg}"))
+
+    blocked_false = 0        # 金标准案件都被误拦？必须 0
+    mat_ok = venue_ok = worth_ok = 0
+    reason_cites_bad = reason_cites = 0
+    ok_cases = 0
+    for c in cases:
+        r = analyze(c["story"], today=TODAY, mode="best_effort")
+        if r["status"] == "blocked":
+            blocked_false += 1
+            continue
+        if r["status"] != "ok":
+            continue
+        ok_cases += 1
+        if len(r.get("materials") or []) >= 4:
+            mat_ok += 1
+        if len(r.get("venue") or []) >= 4:
+            venue_ok += 1
+        worth = r.get("worth") or {}
+        if worth.get("decision") in ("recommend", "better_alternative", "not_recommended") \
+                and worth.get("reasons") and worth.get("dimensions"):
+            worth_ok += 1
+        for reason in worth.get("reasons") or []:
+            for cite in reason.get("cites") or []:
+                reason_cites += 1
+                slug, _, no = cite.partition(":")
+                if not (slug in laws.SHORT_NAME and laws.exists(slug, no)):
+                    reason_cites_bad += 1
+
     n = len(cases)
     field_acc = {k: hit[k] / total[k] for k in FIELDS}
     overall = sum(hit.values()) / sum(total.values())
@@ -213,14 +286,48 @@ def main() -> None:
         lines.append(f"| {s} | {got} | {ok} |")
     lines.append(f"\n准确 {out_of_scope_ok}/{len(probes)}。三类指路：工伤→人社局工伤科、社保→社保征收机构/12333、公积金→公积金管理中心。")
 
+    lines.append("\n## 五、新增能力：闸门 / 材料 / 路径 / 值得性\n")
+    lines.append(
+        "> 这一节回答的是「新写的那几个模块有没有真的接进流水线」。"
+        "上一轮 `city.py` / `gates.py` 写完但没接线，单测全绿、覆盖率 0%——"
+        "所以这里不看单测，直接看 50 条真实案件上流水线吐出来的东西。\n"
+    )
+    lines.append("### 5.1 资格闸门探针（五类必须拦到的情形）\n")
+    lines.append("「期望」列是 `流水线状态/闸门层状态`：一事不再理必须同时 `blocked/fail`（不出金额），"
+                 "其余四类只能 `ok/warn`（给出提醒但不拦死）。\n")
+    lines.append("| 情形 | 期望 | 实测 | 对不对 |")
+    lines.append("| --- | --- | --- | --- |")
+    for kind, want, got, ok in gate_rows:
+        lines.append(f"| {kind} | {want} | {got} | {ok} |")
+    lines.append(f"\n闸门判对 **{gate_ok}/{len(gate_probes)}**；"
+                 f"50 条金标准案件被误判为「不能申请」的 **{blocked_false} 条**"
+                 "（金标准都是可仲裁的劳动争议，误拦应为 0）。\n")
+
+    lines.append("### 5.2 城市口径探针（覆盖的要用，没覆盖的要说）\n")
+    lines.append("| 情形 | 对不对 | 实测 |")
+    lines.append("| --- | --- | --- |")
+    for label, ok, note in city_rows:
+        lines.append(f"| {label} | {ok} | {note} |")
+    lines.append(f"\n城市口径判对 **{city_probe_ok}/{len(city_probes)}**。\n")
+
+    lines.append("### 5.3 输出完整性（有金额的案件必须同时给出这些）\n")
+    lines.append("| 检查项 | 结果 | 为什么必须 |")
+    lines.append("| --- | ---: | --- |")
+    lines.append(f"| 能进入计算的金标准案件 | {ok_cases}/{n} | 其余是信息不全、按设计转追问 |")
+    lines.append(f"| 材料清单 ≥4 项 | {mat_ok}/{ok_cases} | 少一项，用户就多跑一趟 |")
+    lines.append(f"| 立案路径 ≥4 条 | {venue_ok}/{ok_cases} | 只给金额不给入口，等于没帮上忙 |")
+    lines.append(f"| 值得性三选一 + 六维 + 理由齐全 | {worth_ok}/{ok_cases} | 结论要有出处，不能只给一个分数 |")
+    lines.append(f"| 值得性理由的法条可回库核验 | {reason_cites - reason_cites_bad}/{reason_cites} | 理由里的每条依据都要能查到原文 |")
+
     if fails:
-        lines.append("\n## 五、典型失误（抽取层）\n")
+        lines.append("\n## 六、典型失误（抽取层）\n")
         lines.append("| 案例 | 字段 | 明细 |")
         lines.append("| --- | --- | --- |")
         for cid, f, d in fails[:10]:
             lines.append(f"| {cid} | {f} | {d} |")
-
-    lines.append("\n## 六、法律边界声明\n")
+        lines.append("\n## 七、法律边界声明\n")
+    else:
+        lines.append("\n## 六、法律边界声明\n")
     lines.append("- 只覆盖内地劳动争议仲裁，不涉及工伤认定、社保补缴、公积金。")
     lines.append("- 不预测胜诉率、不代替律师；符合条件引导 12348 法律援助。")
     lines.append("- 所有金额由规则内核计算并附法条原文，模型只负责抽参数。\n")
