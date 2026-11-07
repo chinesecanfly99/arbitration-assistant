@@ -92,3 +92,43 @@ def test_zero_install_test_runner_exists_and_is_runnable():
     )
     assert proc.returncode == 0, proc.stdout.decode("utf-8", "replace")[-2000:]
     assert b"test" in proc.stdout.lower()
+
+
+def _load_run_module():
+    import importlib.util
+
+    path = os.path.join(ROOT, "run.py")
+    assert os.path.exists(path), "缺一键启动入口 run.py"
+    spec = importlib.util.spec_from_file_location("arb_run", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_launcher_injects_src_into_sys_path():
+    """run.py 的卖点就是"不用先设 PYTHONPATH"，所以它必须自己把 src 塞进去。"""
+    mod = _load_run_module()
+    assert os.path.join(ROOT, "src") in mod.SRC or mod.SRC.endswith(os.path.join("", "src"))
+    assert mod.SRC in sys.path
+
+
+def test_launcher_avoids_busy_port():
+    import socket
+
+    mod = _load_run_module()
+    holder = socket.socket()
+    try:
+        holder.bind(("127.0.0.1", 0))
+        holder.listen(1)
+        busy = holder.getsockname()[1]
+        got = mod.free_port(busy, tries=3)
+        assert got != busy, "端口被占时必须自动换一个，而不是抛 OSError"
+    finally:
+        holder.close()
+
+
+def test_launcher_entry_is_guarded():
+    """run.py 被 import 时不能自己起服务器，否则测试会挂住。"""
+    text = io.open(os.path.join(ROOT, "run.py"), encoding="utf-8").read()
+    assert 'if __name__ == "__main__":' in text
+    assert "serve_forever" in text
