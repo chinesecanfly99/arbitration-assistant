@@ -157,13 +157,22 @@ def render_pdf(report: dict) -> bytes:
     d = _Doc()
     d.text(MARGIN, d.y - 20, "劳动仲裁金额测算单", 18)
     d.y -= 30
-    d.text(MARGIN, d.y - 9, f"生成日期：{date.today().isoformat()}　口径城市：深圳（示例）", 8)
+    city = (report.get("city") or {}).get("city") or "未覆盖（未套用任何城市数字）"
+    d.text(MARGIN, d.y - 9, f"生成日期：{date.today().isoformat()}　口径城市：{city}", 8)
     d.y -= 14
 
     if report.get("status") == "need_more":
         d.heading("现在还不能算，需要补充")
         for q in report.get("questions", []):
             d.paragraph("· " + q, 10.5, 4)
+        return build_pdf(d.finish())
+
+    if report.get("status") == "blocked":
+        d.heading("现在还不能申请")
+        for b in report.get("blockers", []):
+            d.paragraph("硬性障碍：" + b, 10.5, 4)
+        d.paragraph("这不是算不出来，而是这件事现在不具备申请条件，所以不给金额。", 9.5, 5)
+        d.paragraph("本单不构成法律意见；具体怎么办建议先拨 12348 免费问一遍。", 9, 4)
         return build_pdf(d.finish())
 
     if report.get("status") == "out_of_scope":
@@ -176,6 +185,12 @@ def render_pdf(report: dict) -> bytes:
             d.paragraph("· " + h, 9.5, 4)
         d.paragraph("本单不构成法律意见；可拨 12348 免费咨询。", 9, 4)
         return build_pdf(d.finish())
+
+    worth = report.get("worth") or {}
+    if worth.get("decision_label"):
+        d.text(MARGIN, d.y - 10, f"结论：{worth['decision_label']}（值得性 {worth.get('score')}/100，"
+                                 "不是胜诉概率）", 10)
+        d.y -= 16
 
     d.heading("当事人原话")
     d.paragraph(report.get("story", ""), 9.5, 4)
@@ -217,6 +232,40 @@ def render_pdf(report: dict) -> bytes:
             d.paragraph(f"第 {i} 轮　HR：{rd['hr_says']}", 9, 3)
             d.paragraph(f"      为什么难缠：{rd['why']}", 8.5, 3, indent=10)
             d.paragraph(f"      你怎么接：{rd['counter']}", 8.5, 5, indent=10)
+
+    mats = report.get("materials") or []
+    ev = report.get("evidence_score") or {}
+    if mats:
+        d.heading("要带什么（材料清单）")
+        if ev:
+            d.paragraph(f"证据强度 {ev.get('score')}/100（{ev.get('level')}）"
+                        + ("" if ev.get("known", True) else "——你还没说手上有哪些材料，这一维按中性算"), 9, 3)
+        for m in mats:
+            d.need(20)
+            d.paragraph(("☑ " if m["have"] else "☐ ") + m["name"], 9, 1)
+            d.paragraph(f"    谁举证：{m['burden']}　怎么拿：{m['how']}", 8, 3, indent=10)
+
+    venue = report.get("venue") or []
+    if venue:
+        d.heading("去哪办（立案路径）")
+        for b in venue:
+            d.need(30)
+            d.paragraph(f"{b['stage']}　{b['name']}", 9, 1)
+            if b.get("where"):
+                d.paragraph(f"    地点：{b['where']}", 8, 1, indent=10)
+            tels = [a["value"] for a in b.get("actions") or [] if a.get("kind") == "tel"]
+            d.paragraph("    " + b["note"] + (f"　电话：{'、'.join(tels)}" if tels else ""), 8, 3, indent=10)
+
+    if worth.get("dimensions"):
+        d.heading("值不值得去（六维加权，不是胜诉率）")
+        for dim in worth["dimensions"]:
+            d.paragraph(f"{dim['label']}（权重 {int(round(dim['weight'] * 100))}%）"
+                        f"　{dim['score']} 分：{dim['note']}", 8.5, 3)
+        alt = worth.get("alternative")
+        if alt:
+            d.paragraph(f"更快的路：{alt['title']}——{alt['why']}（{alt['tel']}）", 8.5, 3)
+        if report.get("one_final_note"):
+            d.paragraph("一裁终局：" + report["one_final_note"], 8.5, 4)
 
     if report.get("assumptions"):
         d.heading("本单采用的口径（请确认）")
@@ -267,28 +316,6 @@ def validate(data: bytes) -> list[str]:
             problems.append(f"xref 第 {obj_no} 条格式错")
             continue
         off = int(parts[0])
-        expect = f"{obj_no} 0 obj".encode()
-        if data[off:off + len(expect)] != expect:
-            problems.append(f"xref 第 {obj_no} 条偏移指错了")
-    n_pages = text.count("/Type /Page ")
-    if n_pages < 1:
-        problems.append("没有页面对象")
-    return problems
-    head, _tail = m[0], m[1]
-    lines = _tail.split("\n")
-    try:
-        count = int(lines[1].split()[1])
-    except (IndexError, ValueError):
-        problems.append("xref 计数行不可解析")
-        return problems
-    for i in range(1, count):
-        row = lines[2 + i] if 2 + i < len(lines) else ""
-        parts = row.split()
-        if len(parts) < 3:
-            problems.append(f"xref 第 {i} 条格式错")
-            continue
-        off = int(parts[0])
-        obj_no = i
         expect = f"{obj_no} 0 obj".encode()
         if data[off:off + len(expect)] != expect:
             problems.append(f"xref 第 {obj_no} 条偏移指错了")

@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }} / py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # 零安装路径：pytest 已随仓库放在 vendor/pkgs/
+      - name: Run tests (zero-install)
+        run: python run_tests.py
+        env:
+          PYTHONIOENCODING: utf-8
+
+      # 第二次跑装出来的 pytest，顺带验证「常规方式也能装」
+      - name: Install dev deps
+        run: python -m pip install -r requirements.txt pytest pytest-cov
+
+      - name: Run tests (installed)
+        run: python -m pytest -q --cov=arb --cov-report=term-missing
+        env:
+          PYTHONIOENCODING: utf-8
+
+  eval:
+    name: 评测与消融（指标可复现）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 生成评测报告
+        run: |
+          PYTHONPATH=src python -m scripts.eval_report
+          PYTHONPATH=src python -m scripts.ablation
+        env:
+          PYTHONIOENCODING: utf-8
+      # 跑完必须没有未提交的文档变化：说明仓库里的 docs/*.md 与代码一致，
+      # 而不是「报告是手改的、代码早就变了」。
+      - name: docs 必须与代码一致
+        run: git diff --exit-code docs/

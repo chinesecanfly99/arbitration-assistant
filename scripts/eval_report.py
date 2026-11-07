@@ -152,7 +152,10 @@ def main() -> None:
 
     lines = []
     lines.append("# 劳动仲裁维权助手 · 评测报告\n")
-    lines.append(f"> 自动生成于 {date.today().isoformat()}　案例 {n} 条　口径日 {TODAY.isoformat()}\n")
+    # 不写 date.today()：生成物必须可复现，否则「重新生成一遍」永远产生 diff，
+    # CI 就没法用 `git diff --exit-code docs/` 检查"文档是否跟代码一致"。
+    lines.append(f"> 本文件由 `python -m scripts.eval_report` 生成，请勿手改　"
+                 f"案例 {n} 条　口径日 {TODAY.isoformat()}\n")
     acc_end = field_acc["end_date"]
     lines.append("## 一、一句话结论" + chr(10))
     lines.append(

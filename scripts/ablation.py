@@ -23,6 +23,7 @@ import json
 import os
 from datetime import date
 
+from arb import laws
 from arb.calc import ClaimInput, compute
 from arb.evalkit import amount_matches
 from arb.extract import extract
@@ -152,7 +153,9 @@ def main() -> None:
     n = len(cases)
     lines = []
     lines.append("# 消融实验：每个部件各值多少分\n")
-    lines.append(f"> 自动生成于 {date.today().isoformat()}　评测集 {n} 条　探针 {len(PROBES)} 条　口径日 {TODAY.isoformat()}\n")
+    # 同 eval_report：不写生成日期，保证重复生成不产生 diff
+    lines.append(f"> 本文件由 `python -m scripts.ablation` 生成，请勿手改　评测集 {n} 条　"
+                 f"探针 {len(PROBES)} 条　口径日 {TODAY.isoformat()}\n")
     lines.append("## 一、四臂对比（同一批案例，只拆部件、不换数据）\n")
     lines.append("| 臂 | 金额命中 | 该算未算（追问/拒答） | 输出引用 | 其中可核验 | 探针判对 |")
     lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
@@ -182,7 +185,8 @@ def main() -> None:
     )
     lines.append(
         f"- **法条库值多少**：A/B/C 三条臂算出的钱一条都核不了（{a['cited']} / {b['cited']} / {c_['cited']} 条引用无一可验），"
-        f"D 臂 {d['verified']}/{d['cited']} 条引用都能在 8 部法条库里查到原文。这是「用户凭什么信」的全部差别。"
+        f"D 臂 {d['verified']}/{d['cited']} 条引用都能在 {len(laws.LAW_ORDER)} 部法条/司法解释库里查到原文。"
+        f"这是「用户凭什么信」的全部差别。"
     )
     lines.append(
         f"- **范围拒答值多少**：{len(PROBES)} 条探针里，裸算臂只判对 {pa}/{len(PROBES)}，"

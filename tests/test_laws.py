@@ -32,10 +32,28 @@ def test_expected_article_counts():
         "social_insurance_law": 98,
         "labor_contract_impl": 38,
         "wage_payment_rules": 20,
+        # 司法解释（一）54 条（法释〔2020〕26 号）；司法解释（二）21 条（2025-09-01 施行）
+        "sfjs1": 54,
+        "sfjs2": 21,
     }
-    assert len(laws.LAW_ORDER) == 8
+    assert len(laws.LAW_ORDER) == 10
     for slug, n in expected.items():
         assert len(laws.by_slug(slug)) == n, slug
+
+
+def test_judicial_interpretations_are_citable():
+    """司法解释必须是"可引用的"，否则二倍工资按月计算只能引到《劳动合同法》第 82 条——引得到但引不准。"""
+    a = laws.get("sfjs2", 6)
+    assert a and "二倍工资按月计算" in a.text
+    assert a.cite == "《劳动争议司法解释（二）》第六条"
+    assert a.version_date == "2025-09-01"
+    # 解释（二）废止了解释（一）第 32 条第 1 款（退休返聘一律按劳务关系）
+    a21 = laws.get("sfjs2", 21)
+    assert a21 and "第三十二条第一款同时废止" in a21.text
+    # 法名各种写法都要能落到 slug 上，否则测试外的人写全称就核不了
+    for name in ("最高人民法院关于审理劳动争议案件适用法律问题的解释（二）",
+                 "劳动争议司法解释（二）", "司法解释（二）", "解释（二）", "sfjs2"):
+        assert laws.resolve_name(name) == "sfjs2", name
 
 
 def test_key_articles_present_and_correct():
