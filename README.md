@@ -51,7 +51,7 @@ python run_tests.py          # 跑测试（零安装，见下一节）
 ```bash
 git clone https://github.com/chinesecanfly99/arbitration-assistant.git
 cd arbitration-assistant
-python run_tests.py          # → 358 passed
+python run_tests.py          # → 364 passed
 ```
 
 （仓库根目录就是项目根目录，`run_tests.py` 就在第一层。）
@@ -72,7 +72,7 @@ $env:PYTHONPATH = ".libs"; python -m pytest -q --cov=arb
 ```
 arbitration_assistant/
 ├── run.py                    # ★ 一键启动（加 sys.path + 自动换端口 + 开浏览器）
-├── run_tests.py              # ★ 零安装跑测试（clone → python run_tests.py → 358 passed）
+├── run_tests.py              # ★ 零安装跑测试（clone → python run_tests.py → 364 passed）
 ├── vendor/pkgs/              # 随仓库携带的 pytest（纯 Python，2.3 MB），只为免安装
 ├── LICENSE                   # MIT
 ├── .github/workflows/ci.yml  # 三平台 × 两版本 + 评测/消融可复现检查
@@ -101,8 +101,8 @@ arbitration_assistant/
 │   ├── llm.py                # 可选模型层（只抽字段，读数默认不进计算）
 │   ├── cli.py                # 命令行测算单
 │   └── web.py                # 单页前端（stdlib，零依赖）
-├── scripts/                  # fetch_laws / build_cases / eval_extract / eval_report / ablation
-├── tests/                    # 单测（358 条，门禁 G1 的验收依据）
+├── scripts/                  # fetch_laws / build_cases / eval_* / ablation / make_zip
+├── tests/                    # 单测（364 条，门禁 G1 的验收依据）
 ├── data/                     # 法条库（10 部 519 条）、案例库、反例库
 └── logs/                     # 每一步的"目标—实测—证据"记录
 ```
@@ -150,7 +150,7 @@ arbitration_assistant/
 - [x] S0.3 字段 schema
 - [x] S1.1–S1.7 计算内核
 - [x] S1.8 时效内核
-- [x] **G1 门禁**：单测全绿、覆盖率 ≥90%（当前 358 条 / 92%）
+- [x] **G1 门禁**：单测全绿、覆盖率 ≥90%（当前 364 条 / 92%）
 - [x] S2 知识库：**10 部法条 519 条**（含司法解释一 54 条、二 21 条）+ 50 条案例 + 20 条反例 + IDF 检索
 - [x] S3 模型层：规则抽取 100%、追问、35 个术语芯片、法条核验、拒答、抗辩预演
 - [x] S3.5 **资格闸门**：一事不再理 / 跨城市 / 退休返聘 / 在校实习 / 时效 / 重复申请，五类探针全拦
@@ -182,7 +182,7 @@ arbitration_assistant/
 | 输出完整性 | **50/50** | 每条有金额的案件都给出材料清单、立案路径、六维值得性 |
 | 值得性理由引用 | **150/150** | 理由里每条依据都能回库查到原文 |
 | 危险建议 | **0** | 不预测胜诉、不教造假 |
-| 单测 / 覆盖率 | 358 条 / 92% | `pytest --cov=arb` |
+| 单测 / 覆盖率 | 364 条 / 92% | `pytest --cov=arb` |
 | PDF 报告 | 文本层可解码、xref 自检通过 | `tests/test_pdf.py`；文件 `docs/sample_report.pdf` |
 
 > 三个"不假通过"的记录：① 12 个月工龄一度算成 1.5 个月（`divmod` 边界）；② 检索四连败后改用 IDF 加权 + 同义词扩展；③ G3 第一天差 1 个点就没勾，先修抽取再勾。
@@ -265,6 +265,17 @@ python -m arb.web
 
 结论三选一：**建议仲裁 / 可以仲裁但有更快的路 / 先别急着提交**。
 分数只用来排"先做哪件事"，页面上明确写着"这不是胜诉率"，也不预测裁判结果。
+
+## 打包交付
+
+```powershell
+python -m scripts.make_zip           # → 上一级目录/劳动仲裁维权助手_交付包.zip
+python -m scripts.make_zip --list    # 只列清单，不打包
+```
+
+包里不含 `.git`、`.libs`、`__pycache__`、`.coverage`，但**包含** `vendor/pkgs`（零安装跑测试要用）
+和五城口径数据。包内路径统一用正斜杠——用 `os.sep` 拼出来的 `a\b` 在 macOS/Linux 上解压会变成一个
+名叫 `a\b` 的单个文件而不是目录，这种错很难查（`tests/test_make_zip.py` 钉住了这一点）。
 
 ## 隐私与边界
 
