@@ -37,9 +37,10 @@ def test_build_writes_a_valid_zip(tmp_path):
     assert out.exists()
     assert res["intact"] is True
     assert res["count"] > 50
+    base = os.path.basename(make_zip.PROJ)
     with zipfile.ZipFile(out) as z:
         assert z.namelist()
-        assert z.read("arbitration_assistant/README.md")[:2] == b"# "
+        assert z.read(f"{base}/README.md")[:2] == b"# "
 
 
 def test_build_is_idempotent(tmp_path):
