@@ -385,12 +385,17 @@ def audit_reply_citations(text: str) -> dict[str, Any]:
 
 def _resolve_live_cfg(api_key: str = "", base_url: str = "", model: str = "") -> dict[str, str] | None:
     env_cfg = llm.config() or {}
-    key = (api_key or "").strip() or env_cfg.get("key", "")
+    client_key = (api_key or "").strip()
+    key = client_key or env_cfg.get("key", "")
     if not key:
         return None
-    base = ((base_url or "").strip() or env_cfg.get("base") or "https://api.openai.com/v1").rstrip("/")
-    mdl = (model or "").strip() or env_cfg.get("model") or "gpt-4o-mini"
-    return {"key": key, "base": base, "model": mdl}
+    # 访客提供自己的 key 时才允许覆盖地址和模型；服务器 key 只发送到后台配置的接口。
+    base = env_cfg.get("base") or "https://api.openai.com/v1"
+    mdl = env_cfg.get("model") or "gpt-4o-mini"
+    if client_key:
+        base = (base_url or "").strip() or base
+        mdl = (model or "").strip() or mdl
+    return {"key": key, "base": base.rstrip("/"), "model": mdl}
 
 
 def has_live_cache(

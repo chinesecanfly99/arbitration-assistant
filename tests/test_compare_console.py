@@ -173,3 +173,60 @@ def test_run_py_cloud_port_binding():
     assert run._resolve_bind([], {}) == ("127.0.0.1", 8765, False, False)
     assert run._resolve_bind(["--lan"], {}) == ("0.0.0.0", 8765, False, True)
     assert run._resolve_bind([], {"PORT": "8080"}) == ("0.0.0.0", 8080, True, True)
+
+
+@pytest.mark.parametrize("client_key", ["", "   "])
+def test_server_key_cannot_be_forwarded_to_client_endpoint(monkeypatch, server, client_key):
+    monkeypatch.setenv("ARB_LLM_API_KEY", "server-test-key")
+    monkeypatch.setenv("ARB_LLM_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("ARB_LLM_MODEL", "deepseek-chat")
+    monkeypatch.setattr(compare, "_LIVE_CACHE", {})
+    calls = []
+
+    def fake_chat(story, cfg, lang="en"):
+        calls.append(dict(cfg))
+        return "Labor Contract Law Art. 87 applies.", 1
+
+    monkeypatch.setattr(compare, "_call_generic_chat", fake_chat)
+    code, body = fetch(server + "/api/compare", {
+        "story": compare.get_demo_case("full_2n")["story_en"],
+        "api_key": client_key,
+        "base_url": "https://attacker.invalid/v1",
+        "model": "client-selected-model",
+        "lang": "en",
+    })
+    assert code == 200
+    assert json.loads(body)["mode"] == "live"
+    assert calls == [{
+        "key": "server-test-key",
+        "base": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+    }]
+
+
+def test_visitor_can_use_own_key_and_endpoint(monkeypatch, server):
+    monkeypatch.setenv("ARB_LLM_API_KEY", "server-test-key")
+    monkeypatch.setenv("ARB_LLM_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("ARB_LLM_MODEL", "deepseek-chat")
+    monkeypatch.setattr(compare, "_LIVE_CACHE", {})
+    calls = []
+
+    def fake_chat(story, cfg, lang="en"):
+        calls.append(dict(cfg))
+        return "Labor Contract Law Art. 87 applies.", 1
+
+    monkeypatch.setattr(compare, "_call_generic_chat", fake_chat)
+    code, body = fetch(server + "/api/compare", {
+        "story": compare.get_demo_case("full_2n")["story_en"],
+        "api_key": "visitor-test-key",
+        "base_url": "https://visitor.example/v1/",
+        "model": "visitor-model",
+        "lang": "en",
+    })
+    assert code == 200
+    assert json.loads(body)["mode"] == "live"
+    assert calls == [{
+        "key": "visitor-test-key",
+        "base": "https://visitor.example/v1",
+        "model": "visitor-model",
+    }]
