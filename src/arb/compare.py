@@ -324,8 +324,22 @@ def match_demo_by_story(story: str) -> dict[str, Any] | None:
     return None
 
 
+EN_LAW_SLUGS = {
+    "labor contract law": ("labor_contract_law", "Labor Contract Law"),
+    "labor law": ("labor_law", "Labor Law"),
+    "labor dispute mediation": ("arbitration_law", "Mediation & Arbitration Law"),
+    "arbitration law": ("arbitration_law", "Mediation & Arbitration Law"),
+    "annual leave": ("annual_leave_regulation", "Annual Leave Regulations"),
+    "social insurance law": ("social_insurance_law", "Social Insurance Law"),
+}
+EN_CITE_RE = re.compile(
+    r"(?i)(labor\s+contract\s+law|labor\s+law|labor\s+dispute\s+mediation[^()]*|arbitration\s+law|[^\.,;()]*annual\s+leave[^\.,;()]*|social\s+insurance\s+law)"
+    r"\s*(?:\(?\s*arts?\.?\s*([\d,\s]+)\s*\)?)"
+)
+
+
 def audit_reply_citations(text: str) -> dict[str, Any]:
-    """用本系统法条库核验一段文本里出现的《法规》第X条是否真实存在。"""
+    """用本系统法条库核验中英文法条引用（支持《法规》第X条与 English Art(s). N）。"""
     found: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for m in CITE_RE.finditer(text or ""):
@@ -341,6 +355,25 @@ def audit_reply_citations(text: str) -> dict[str, Any]:
             "slug": slug,
             "verified": exists,
         })
+    for m in EN_CITE_RE.finditer(text or ""):
+        raw_law = m.group(1).lower()
+        slug = ""
+        disp = m.group(1).strip()
+        for kw, (s, label) in EN_LAW_SLUGS.items():
+            if kw in raw_law:
+                slug, disp = s, label
+                break
+        for art in re.findall(r"\d+", m.group(2)):
+            key = (slug or disp, art)
+            if key in seen:
+                continue
+            seen.add(key)
+            exists = bool(slug and laws.exists(slug, art))
+            found.append({
+                "cite": f"{disp} Art. {art}",
+                "slug": slug,
+                "verified": exists,
+            })
     verified_count = sum(1 for c in found if c["verified"])
     return {
         "total": len(found),

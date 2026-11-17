@@ -57,6 +57,38 @@ def free_port(preferred: int = DEFAULT_PORT, tries: int = 12) -> int:
         return s.getsockname()[1]
 
 
+def _lan_ip() -> str | None:
+    """获取本机主局域网 IP（仅查路由表，不对外发包）。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("223.5.5.5", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith(("127.", "198.18.")):
+                return ip
+    except OSError:
+        pass
+    return None
+
+
+def _resolve_bind(argv: list[str], environ: dict | None = None) -> tuple[str, int, bool, bool]:
+    """解析绑定主机、端口、是否关闭浏览器与是否启用局域网提示。
+
+    当云平台（Zeabur / Render / Railway）注入 PORT 环境变量时，自动监听 0.0.0.0:$PORT
+    并禁用本地自动弹窗，避免云容器启动异常。
+    """
+    env = os.environ if environ is None else environ
+    env_port = str(env.get("PORT") or "").strip()
+    cloud_mode = env_port.isdigit()
+    want = int(env_port) if cloud_mode else DEFAULT_PORT
+    for a in argv:
+        if a.isdigit():
+            want = int(a)
+    lan = ("--lan" in argv) or cloud_mode
+    host = "0.0.0.0" if lan else "127.0.0.1"
+    no_browser = ("--no-browser" in argv) or cloud_mode
+    return host, want, no_browser, lan
+
+
 def main(argv: list[str] | None = None) -> int:
     _load_local_env()
     from http.server import ThreadingHTTPServer
@@ -66,16 +98,21 @@ def main(argv: list[str] | None = None) -> int:
 
     enable_utf8()
     argv = list(sys.argv[1:] if argv is None else argv)
-    want = DEFAULT_PORT
-    for a in argv:
-        if a.isdigit():
-            want = int(a)
-    no_browser = "--no-browser" in argv
+    host, want, no_browser, lan = _resolve_bind(argv)
+    cloud_mode = str(os.environ.get("PORT") or "").strip().isdigit()
 
-    port = free_port(want)
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    port = want if cloud_mode else free_port(want)
+    srv = ThreadingHTTPServer((host, port), Handler)
     url = f"http://127.0.0.1:{port}"
     print(f"劳动仲裁维权助手已启动： {url}  （Ctrl+C 退出）")
+    if lan and not cloud_mode:
+        ip = _lan_ip()
+        if ip:
+            print(f"[手机/局域网访问] 请在手机浏览器打开： http://{ip}:{port}")
+        else:
+            print(f"[手机/局域网访问] 已监听 0.0.0.0:{port}，请用本机局域网 IP:{port} 访问")
+    elif cloud_mode:
+        print(f"[云端托管模式] 正在监听 0.0.0.0:{port}")
     if port != want:
         print(f"[提示] 端口 {want} 被占用，已自动改用 {port}")
     if not no_browser:

@@ -29,7 +29,35 @@ from .compare import (
     match_demo_by_story,
 )
 from .evidence import rows as evidence_rows, summary as evidence_summary
-from .i18n import BURDEN_EN, t, tr_decision, tr_field_label, tr_item
+from .i18n import (
+    BURDEN_EN,
+    t,
+    tr_basis,
+    tr_chip,
+    tr_chip_group,
+    tr_city,
+    tr_deadline,
+    tr_decision,
+    tr_evidence_row,
+    tr_evidence_summary,
+    tr_field_hint,
+    tr_field_label,
+    tr_field_value,
+    tr_fill_text,
+    tr_formula,
+    tr_gate,
+    tr_item,
+    tr_map_summary,
+    tr_material_row,
+    tr_question,
+    tr_ref_case,
+    tr_rehearsal_round,
+    tr_scope_out,
+    tr_statute_text,
+    tr_venue_block,
+    tr_worth_dim,
+    tr_worth_level,
+)
 from .map import completeness, summary_line
 from .pdf import render_pdf
 from .pipeline import analyze, covered_cities
@@ -49,46 +77,46 @@ h2{font-size:15px;margin:0 0 12px;padding-left:10px;border-left:3px solid var(--
 h3{font-size:14.5px;margin:12px 0 4px}
 .sub{color:var(--muted);font-size:13px;margin:0 0 10px}
 
-/* Shell & Sidebar (Charcoal-Slate Editorial Frame) */
+/* Shell & Sidebar (Harmonized Soft Slate-Mist Frame) */
 .app-shell{display:flex;min-height:100vh}
-.sidebar{width:260px;flex-shrink:0;background:#141923;
-         color:#e5e7eb;padding:18px 14px 24px;display:flex;flex-direction:column;gap:16px;
-         border-right:1px solid #242b38}
-.brand{padding:2px 4px 14px;border-bottom:1px solid #242b38}
-.brand-title{font-size:15.5px;font-weight:700;color:#f9fafb;display:flex;align-items:center;gap:8px;letter-spacing:-.1px}
+.sidebar{width:288px;flex-shrink:0;background:#eef2f7;
+         color:#1e293b;padding:18px 14px 24px;display:flex;flex-direction:column;gap:16px;
+         border-right:1px solid #d8e0eb}
+.brand{padding:2px 4px 14px;border-bottom:1px solid #d8e0eb}
+.brand-title{font-size:16px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:8px;letter-spacing:-.1px}
 .brand-pill{display:inline-block;margin-top:6px;font-size:11.5px;padding:2px 8px;border-radius:6px;
-            background:#064e3b;color:#a7f3d0;font-weight:600}
-.side-label{font-size:11.5px;letter-spacing:.3px;color:#9ca3af;margin:2px 6px 6px;font-weight:600}
+            background:#d1fae5;color:#065f46;border:1px solid #a7f3d0;font-weight:600}
+.side-label{font-size:11.5px;letter-spacing:.3px;color:#64748b;margin:2px 4px 6px;font-weight:600}
 
 /* Sidebar Module Tabs */
-.mod-nav{display:flex;flex-direction:column;gap:3px}
-.mod-btn{width:100%;text-align:left;background:transparent;color:#cbd5e1;border:1px solid transparent;
-         border-radius:7px;padding:8px 10px;font-size:13px;font-weight:500;cursor:pointer;transition:.12s;margin:0}
-.mod-btn:hover{background:#1e2533;color:#fff}
-.mod-btn.active{background:#1d4ed8;color:#fff;font-weight:600}
+.mod-nav{display:flex;flex-direction:column;gap:4px}
+.mod-btn{width:100%;text-align:left;background:transparent;color:#334155;border:1px solid transparent;
+         border-radius:8px;padding:8px 10px;font-size:13px;font-weight:500;cursor:pointer;transition:.12s;margin:0}
+.mod-btn:hover{background:#e2e8f0;color:#0f172a}
+.mod-btn.active{background:#1d4ed8;color:#fff;font-weight:600;box-shadow:0 2px 6px rgba(29,78,216,.22)}
 
 /* Compact Demo Case Library with Status Dots */
-.case-list{display:flex;flex-direction:column;gap:4px}
-.case-btn{width:100%;text-align:left;background:#1a2130;color:#e2e8f0;
-          border:1px solid #283142;border-radius:7px;padding:7px 9px;cursor:pointer;
+.case-list{display:flex;flex-direction:column;gap:5px}
+.case-btn{width:100%;text-align:left;background:#ffffff;color:#1e293b;
+          border:1px solid #dbe2ec;border-radius:8px;padding:8px 10px;cursor:pointer;
           transition:.12s;margin:0;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.case-btn:hover{background:#232d40;border-color:#3b82f6}
-.case-btn.active{background:#1e3a8a;border-color:#60a5fa;color:#fff}
+.case-btn:hover{background:#f8fafc;border-color:#60a5fa}
+.case-btn.active{background:#eff6ff;border-color:#2563eb;color:#1e40af;font-weight:600}
 .case-left{display:flex;align-items:center;gap:7px;min-width:0}
 .case-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .case-dot.ok{background:#10b981}
 .case-dot.warn{background:#f59e0b}
 .case-dot.fail{background:#f43f5e}
 .case-name{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.case-tag{font-size:10.5px;color:#94a3b8;flex-shrink:0;font-weight:500}
-.case-btn.active .case-tag{color:#bfdbfe}
-.side-specs{margin-top:auto;padding-top:12px;border-top:1px solid #242b38;font-size:12px;color:#9ca3af;line-height:1.7}
-.side-reset{display:block;margin-top:8px;padding:6px 10px;border-radius:6px;background:#1e2533;border:1px solid #2e3748;
-            color:#e5e7eb;font-size:12.5px;text-align:center;font-weight:500}
-.side-reset:hover{background:#283142;text-decoration:none}
+.case-tag{font-size:10.5px;color:#64748b;flex-shrink:0;font-weight:600}
+.case-btn.active .case-tag{color:#1d4ed8}
+.side-specs{margin-top:auto;padding-top:12px;border-top:1px solid #d8e0eb;font-size:12px;color:#64748b;line-height:1.7}
+.side-reset{display:block;margin-top:8px;padding:7px 10px;border-radius:7px;background:#ffffff;border:1px solid #cbd5e1;
+            color:#334155;font-size:12.5px;text-align:center;font-weight:600}
+.side-reset:hover{background:#f8fafc;border-color:#94a3b8;text-decoration:none}
 
-/* Workspace & Topbar */
-.workspace{flex:1;min-width:0;padding:20px 28px 56px;max-width:1200px}
+/* Workspace & Topbar (Full-Width Fluid Layout) */
+.workspace{flex:1;min-width:0;width:100%;padding:20px 32px 56px}
 .topbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;
         margin-bottom:16px;padding:14px 18px;background:#fff;border:1px solid var(--border);border-radius:10px}
 .topbar-title{font-size:17.5px;font-weight:700;margin:0;color:var(--text);letter-spacing:-.2px}
@@ -352,12 +380,15 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
       var term = chip.dataset.term || '';
       if (!term) return;
       var val2 = storyBox.value;
-      storyBox.value = (val2 && !/[\\s，。,;；]$/.test(val2)) ? val2 + '，' + term + '。' : val2 + term + '。';
+      var sep = (val2 && !/[\\s，。,;；]$/.test(val2)) ? (chip.dataset.lang === 'zh' ? '，' : ', ') : '';
+      var end = chip.dataset.lang === 'zh' ? '。' : '. ';
+      storyBox.value = val2 + sep + term + end;
       storyBox.focus();
       var ex = document.getElementById('explain');
       if (ex) {{
         ex.style.display = 'block';
-        ex.innerHTML = '<b>' + term + '</b><br>' + (chip.dataset.plain || '');
+        ex.innerHTML = '<b>' + term + '</b><br>' + (chip.dataset.plain || '') +
+                       (chip.dataset.when ? '<br><span style="color:#5b6472">' + chip.dataset.when + '</span>' : '');
       }}
     }}
   }});
@@ -496,13 +527,14 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
 """
 
 
-def chips_html() -> str:
+def chips_html(lang: str = "zh") -> str:
     out = []
     for g, items in groups().items():
-        out.append(f'<p class="groupname">{esc(g)}</p><div class="chips">')
-        for c in items:
+        out.append(f'<p class="groupname">{esc(tr_chip_group(lang, g))}</p><div class="chips">')
+        for raw_c in items:
+            c = tr_chip(lang, raw_c)
             out.append(
-                f'<button type="button" class="chip" data-term="{esc(c["term"])}" '
+                f'<button type="button" class="chip" data-lang="{esc(lang)}" data-term="{esc(c["term"])}" '
                 f'data-plain="{esc(c["plain"])}" data-when="{esc(c["when"])}" data-why="{esc(c["why"])}">'
                 f'{esc(c["term"])}</button>'
             )
@@ -514,7 +546,7 @@ def map_html(fields: dict, clickable: bool = False, lang: str = "zh") -> str:
     """9 格完整度地图：已填的绿、必填缺失的红、可选的灰。"""
     c = completeness(fields)
     out = [f'<div class="card" id="sec-map"><h2>{esc(t(lang, "map_title"))} <span class="pct">{int(c["score"] * 100)}%</span></h2>']
-    out.append('<p class="sub">' + esc(summary_line(fields)) + "</p>")
+    out.append('<p class="sub">' + esc(tr_map_summary(lang, summary_line(fields))) + "</p>")
     out.append('<div class="grid">')
     for r in c["rows"]:
         cls = "cell " + r["status"]
@@ -522,7 +554,7 @@ def map_html(fields: dict, clickable: bool = False, lang: str = "zh") -> str:
             mark = "✓" if r["status"] == "ok" else ("Optional" if r["status"] == "optional" else "Missing")
         else:
             mark = "✓" if r["status"] == "ok" else ("可选" if r["status"] == "optional" else "缺")
-        val = esc(r["value"]) if r["value"] else esc(r["hint"].replace("例如：", "").replace("可选：", ""))
+        val = esc(tr_field_value(lang, str(r["value"]))) if r["value"] else esc(tr_field_hint(lang, r["label"], r["hint"]))
         out.append(
             f'<div class="{cls}"><span class="k">{esc(tr_field_label(lang, r["label"]))}</span>'
             f'<span class="v">{val}</span><span class="m">{mark}</span></div>'
@@ -535,7 +567,8 @@ def map_html(fields: dict, clickable: bool = False, lang: str = "zh") -> str:
             for r in miss:
                 lbl = r["label"] if lang == "zh" else tr_field_label("en", r["label"])
                 prefix = "补：" if lang == "zh" else "+ "
-                out.append(f'<button type="button" class="chip fill" data-text="{esc(r["hint"])}">{prefix}{esc(lbl)}</button>')
+                tpl = tr_fill_text(lang, r["label"], r["hint"])
+                out.append(f'<button type="button" class="chip fill" data-text="{esc(tpl)}">{prefix}{esc(lbl)}</button>')
             out.append("</div>")
     out.append("</div>")
     return "".join(out)
@@ -545,20 +578,20 @@ def evidence_html(rehearsal: dict | None, lang: str = "zh") -> str:
     if not rehearsal or not rehearsal.get("evidence_checklist"):
         return ""
     rows_ = evidence_rows(rehearsal["evidence_checklist"])
+    emp_n = sum(1 for r in rows_ if r["who"] == "单位")
+    sum_txt = evidence_summary(rows_) if lang == "zh" else tr_evidence_summary(lang, len(rows_), emp_n)
     out = [f'<div class="card" id="sec-evidence"><h2>{esc(t(lang, "evidence_title"))}</h2>']
-    out.append('<p class="sub">' + esc(evidence_summary(rows_)) + "</p>")
+    out.append('<p class="sub">' + esc(sum_txt) + "</p>")
     out.append(
         f'<table><tr><th>{esc(t(lang, "col_ev"))}</th>'
         f'<th>{esc(t(lang, "col_who"))}</th><th>{esc(t(lang, "col_why"))}</th></tr>'
     )
     for r in rows_:
-        who_lbl = r["who"] if lang == "zh" else BURDEN_EN.get(r["who"], r["who"])
-        if lang == "zh":
-            who_lbl = {"单位": "单位举证", "双方": "双方", "你": "你自己准备"}[r["who"]]
+        name, who_lbl, why_txt = tr_evidence_row(lang, r)
         cls = {"单位": "unit", "双方": "both", "你": "me"}[r["who"]]
         out.append(
-            f'<tr><td>{esc(r["name"])}</td><td><span class="badge {cls}">{esc(who_lbl)}</span></td>'
-            f'<td class="sub" style="margin:0">{esc(r["why"])}</td></tr>'
+            f'<tr><td>{esc(name)}</td><td><span class="badge {cls}">{esc(who_lbl)}</span></td>'
+            f'<td class="sub" style="margin:0">{esc(why_txt)}</td></tr>'
         )
     out.append("</table></div>")
     return "".join(out)
@@ -580,14 +613,16 @@ def gates_html(gates: dict | None, lang: str = "zh") -> str:
         return ""
     out = [f'<div class="card" id="sec-gates"><h2>{esc(t(lang, "gates_title"))}</h2>']
     out.append(f'<p class="sub">{esc(t(lang, "gates_sub"))}</p>')
-    for g in layers:
+    for idx, g in enumerate(layers):
         cls = g.get("status") or "info"
-        out.append(f'<div class="gate {cls}"><div class="t">{esc(g.get("title"))}</div>')
-        out.append(f'<div class="m">{esc(g.get("message"))}</div>')
-        if g.get("detail"):
-            out.append("<ul>" + "".join(f"<li>{esc(d)}</li>" for d in g["detail"]) + "</ul>")
+        title, msg, details = tr_gate(lang, idx, g)
+        out.append(f'<div class="gate {cls}"><div class="t">{esc(title)}</div>')
+        out.append(f'<div class="m">{esc(msg)}</div>')
+        if details:
+            out.append("<ul>" + "".join(f"<li>{esc(d)}</li>" for d in details) + "</ul>")
         if g.get("cites"):
-            out.append(f'<div class="dim" style="margin-top:4px">{esc("、".join(g["cites"]))}</div>')
+            cites_txt = "、".join(g["cites"]) if lang == "zh" else ", ".join(g["cites"])
+            out.append(f'<div class="dim" style="margin-top:4px">{esc(cites_txt)}</div>')
         out.append("</div>")
     for b in gates.get("blockers") or []:
         out.append(f'<p class="gate fail"><b>{esc(t(lang, "blocker_label"))}</b> {esc(b)}</p>')
@@ -630,7 +665,8 @@ def materials_html(mats: list[dict], ev: dict | None, lang: str = "zh") -> str:
     ev = ev or {}
     if ev:
         pct = int(ev.get("score") or 0)
-        out.append(f'<p class="sub">{esc(t(lang, "ev_strength"))} <b>{pct}/100</b> ({esc(ev.get("level") or "")})</p>')
+        lvl = tr_worth_level(lang, ev.get("level") or "")
+        out.append(f'<p class="sub">{esc(t(lang, "ev_strength"))} <b>{pct}/100</b> ({esc(lvl)})</p>')
         out.append(f'<div class="bar"><i style="width:{pct}%"></i></div>')
     out.append(
         f'<table><tr><th>{esc(t(lang, "col_mat"))}</th>'
@@ -641,11 +677,12 @@ def materials_html(mats: list[dict], ev: dict | None, lang: str = "zh") -> str:
             f'<span class="ok-i">{esc(t(lang, "have"))}</span>'
             if m["have"] else f'<span class="no-i">{esc(t(lang, "missing"))}</span>'
         )
+        m_name, m_purpose, m_how = tr_material_row(lang, m)
         out.append(
-            f'<tr><td>{esc(m["name"])}<div class="dim">{esc(m.get("from_type") or "")}</div></td>'
+            f'<tr><td>{esc(m_name)}</td>'
             f'<td>{flag}</td>'
-            f'<td class="sub" style="margin:0">{esc(m["purpose"])}<br>'
-            f'<span style="color:#64748b">{esc(m["burden"])} · {esc(m["how"])}</span></td></tr>'
+            f'<td class="sub" style="margin:0">{esc(m_purpose)}<br>'
+            f'<span style="color:#64748b">{esc(m_how)}</span></td></tr>'
         )
     out.append("</table></div>")
     return "".join(out)
@@ -656,16 +693,17 @@ def venue_html(blocks: list[dict], lang: str = "zh") -> str:
         return ""
     out = [f'<div class="card" id="sec-venue"><h2>{esc(t(lang, "venue_title"))}</h2>']
     for b in blocks:
-        out.append(f'<div class="gate info"><span class="stage">{esc(b["stage"])}</span>')
-        out.append(f'<div class="t">{esc(b["name"])}</div>')
-        if b.get("where"):
-            out.append(f'<div class="m">📍 {esc(b["where"])}</div>')
-        if b.get("hours"):
-            out.append(f'<div class="dim">🕘 {esc(b["hours"])}</div>')
-        if b.get("note"):
-            out.append(f'<div class="dim" style="margin-top:4px">{esc(b["note"])}</div>')
+        st, vname, vwhere, vnote = tr_venue_block(lang, b)
+        out.append(f'<div class="gate info"><span class="stage">{esc(st)}</span>')
+        out.append(f'<div class="t">{esc(vname)}</div>')
+        if vwhere:
+            out.append(f'<div class="m">{esc(vwhere)}</div>')
+        if b.get("hours") and lang == "zh":
+            out.append(f'<div class="dim">{esc(b["hours"])}</div>')
+        if vnote:
+            out.append(f'<div class="dim" style="margin-top:4px">{esc(vnote)}</div>')
         acts = b.get("actions") or []
-        if acts:
+        if acts and lang == "zh":
             links = []
             for a in acts:
                 kind, label, value = a.get("kind"), a.get("label"), a.get("value") or ""
@@ -694,19 +732,20 @@ def worth_html(worth: dict | None, one_final: str | None = None, lang: str = "zh
         f'<th class="num">{esc(t(lang, "col_score"))}</th><th>{esc(t(lang, "col_note"))}</th></tr>'
     )
     for d in worth.get("dimensions") or []:
+        dlbl, dnote = tr_worth_dim(lang, d)
         out.append(
-            f'<tr><td>{esc(d["label"])} <span class="dim">({int(round(d["weight"] * 100))}%)</span></td>'
+            f'<tr><td>{esc(dlbl)} <span class="dim">({int(round(d["weight"] * 100))}%)</span></td>'
             f'<td class="num">{esc(d["score"])}</td>'
-            f'<td class="sub" style="margin:0">{esc(d["note"])}</td></tr>'
+            f'<td class="sub" style="margin:0">{esc(dnote)}</td></tr>'
         )
     out.append("</table>")
     alt = worth.get("alternative")
-    if alt:
+    if alt and lang == "zh":
         out.append(
             f'<p class="gate warn" style="margin-top:10px"><b>{esc(alt.get("title"))}</b><br>'
             f'{esc(alt.get("why"))} · {esc(alt.get("tel"))}</p>'
         )
-    if one_final:
+    if one_final and lang == "zh":
         out.append(f'<p class="sub">{esc(one_final)}</p>')
     out.append("</div>")
     return "".join(out)
@@ -817,7 +856,7 @@ def compare_html(
         total_items = len(report.get("items", []))
         out.append(f'<div class="hero-total">¥{_money(report.get("total"))}</div>')
         lines = [
-            f'· {tr_item(lang, it["name"])}: ¥{_money(it["amount"])} ({it["formula"]})'
+            f'· {tr_item(lang, it["name"])}: ¥{_money(it["amount"])} ({tr_formula(lang, it["formula"])})'
             for it in report.get("items", [])
         ]
         out.append(f'<div class="cmp-reply">{esc(chr(10).join(lines))}</div>')
@@ -835,11 +874,13 @@ def compare_html(
         comp = completeness(report.get("fields") or {})
         msg = f'Refused to Guess ({int(comp["score"] * 100)}% Complete)' if lang != "zh" else f'已拒绝瞎猜（完整度 {int(comp["score"] * 100)}%）'
         out.append(f'<div class="hero-total" style="color:#d97706">{esc(msg)}</div>')
-        out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + q for q in report.get("questions") or []))}</div>')
+        qs = [tr_question(lang, q) for q in (report.get("questions") or [])]
+        out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + q for q in qs))}</div>')
         out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "need_more_sub"))}</div></div>')
     elif status == "out_of_scope":
         out.append(f'<div class="hero-total" style="color:#d97706">{esc(t(lang, "out_scope_title"))}</div>')
-        out.append(f'<div class="cmp-reply">{esc(report.get("redirect") or report["scope"].get("reason"))}</div>')
+        reason, redir, _ = tr_scope_out(lang, report)
+        out.append(f'<div class="cmp-reply">{esc(redir or reason)}</div>')
         out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "out_scope_where"))}</div></div>')
     else:
         out.append(f'<div class="hero-total" style="color:#e11d48">{esc(t(lang, "blocked_title"))}</div>')
@@ -881,8 +922,8 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         '<input type="text" name="model" id="apiModelInput" placeholder="Model (deepseek-chat)">',
         "</div></div>",
         '<div class="drawer" id="chipsDrawer">',
-        f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, "guide_intro"))} <span class="dim">（人话辅助）</span></p>',
-        chips_html(),
+        f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, "guide_intro"))}</p>',
+        chips_html(lang=lang),
         '<div id="explain"></div>',
         "</div></form></section>",
     ]
@@ -941,7 +982,7 @@ def render_page(
         )
         cities = covered_cities()
         city_rows = " · ".join(
-            f'{esc(c["city"])} (¥{c["avg_wage_monthly"]:,.0f}/mo, {esc(c["verified_at"])})'
+            f'{esc(tr_city(lang, c["city"]))} (¥{c["avg_wage_monthly"]:,.0f}/mo, {esc(c["verified_at"])})'
             for c in cities
         )
         body.append(
@@ -958,13 +999,14 @@ def render_page(
                 async_pending=bool((async_compare or {}).get("pending")),
                 model_name=(cfg or {}).get("model", "deepseek-chat"),
             ))
+        reason, redir, hints_list = tr_scope_out(lang, report)
         body.append(
             f'<div class="card"><h1>{esc(t(lang, "out_scope_title"))}</h1>'
-            f'<p class="sub">{esc(report["scope"]["reason"])}</p>'
+            f'<p class="sub">{esc(reason)}</p>'
             f'<h2>{esc(t(lang, "out_scope_where"))}</h2>'
-            f'<p>{esc(report.get("redirect") or "—")}</p>'
+            f'<p>{esc(redir)}</p>'
         )
-        for h in report.get("hints", []):
+        for h in hints_list:
             body.append(f'<p style="margin:4px 0">· {esc(h)}</p>')
         body.append("</div>")
         body.append(pending_html(report.get("pending") or [], story, lang=lang))
@@ -995,9 +1037,10 @@ def render_page(
             f'<h2>{esc(t(lang, "need_more_sub"))}</h2>'
         )
         for q in report["questions"]:
-            body.append(f'<p style="margin:4px 0">· {esc(q)}</p>')
-        for x in report.get("relative") or []:
-            body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
+            body.append(f'<p style="margin:4px 0">· {esc(tr_question(lang, q))}</p>')
+        if lang == "zh":
+            for x in report.get("relative") or []:
+                body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
         body.append("</div>")
         body.append(map_html(report.get("fields") or {}, clickable=True, lang=lang))
         body.append(gates_html(report.get("gates"), lang=lang))
@@ -1064,7 +1107,7 @@ def render_page(
             body.append(
                 f'<tr><td>{esc(tr_item(lang, it["name"]))}</td>'
                 f'<td class="num">{_money(it["amount"])}</td>'
-                f'<td>{esc(it["formula"])}</td></tr>'
+                f'<td>{esc(tr_formula(lang, it["formula"]))}</td></tr>'
             )
         body.append(f'<tr><th>{esc(t(lang, "col_total"))}</th><th class="num">{_money(report["total"])}</th><th></th></tr></table></div>')
         body.append("</div>")
@@ -1080,20 +1123,27 @@ def render_page(
             )
             body.append(
                 f'<p style="margin:10px 0 2px"><b>{esc(tr_item(lang, it["name"]))}</b>{flag}'
-                f'<br><span class="sub" style="margin:0">{esc(it["basis"])}</span></p>'
+                f'<br><span class="sub" style="margin:0">{esc(tr_basis(lang, it["basis"]))}</span></p>'
             )
             for c in it.get("cite_texts", []):
+                cite_lbl = c["cite"] if lang == "zh" else tr_basis(lang, c["cite"])
+                st_text = tr_statute_text(lang, c["cite"], c["text"])
                 body.append(
-                    f'<details><summary>{esc(c["cite"])} · {esc(t(lang, "original_text"))}</summary>'
-                    f'<blockquote>{esc(c["text"])}</blockquote></details>'
+                    f'<details><summary>{esc(cite_lbl)} · {esc(t(lang, "original_text"))}</summary>'
+                    f'<blockquote>{esc(st_text)}</blockquote></details>'
                 )
         body.append("</div>")
         if report.get("reference_cases"):
             body.append(f'<div class="card"><h2>{esc(t(lang, "ref_title"))}</h2><p class="sub">{esc(t(lang, "ref_sub"))}</p>')
-            for case in report["reference_cases"]:
+            ref_labels = (
+                (("争议焦点", "focus"), ("处理结果", "result"), ("可比点", "compare"), ("区别", "distinguish"))
+                if lang == "zh" else
+                (("Focus", "focus"), ("Outcome", "result"), ("Similarity", "compare"), ("Distinction", "distinguish"))
+            )
+            for raw_case in report["reference_cases"]:
+                case = tr_ref_case(lang, raw_case)
                 body.append(f'<h3>{esc(case["title"])}</h3>')
-                for label, key in (("争议焦点", "focus"), ("处理结果", "result"),
-                                   ("可比点", "compare"), ("区别", "distinguish")):
+                for label, key in ref_labels:
                     body.append(f'<p style="margin:3px 0"><b>{label}</b>　{esc(case[key])}</p>')
                 body.append(f'<p style="margin:4px 0 10px"><a href="{esc(case["url"])}" target="_blank" rel="noopener">{esc(case["source"])}</a></p>')
             body.append("</div>")
@@ -1107,19 +1157,24 @@ def render_page(
             f'<th>{esc(t(lang, "col_deadline"))}</th><th class="num">{esc(t(lang, "col_left"))}</th></tr>'
         )
         for d in report["deadlines"]:
+            dlbl, danchor = tr_deadline(lang, d)
             left = "—" if d["days_left"] is None else (
                 t(lang, "expired") if d["expired"] else t(lang, "days_left", n=d["days_left"])
             )
-            body.append(f'<tr><td>{esc(d["label"])}</td><td>{esc(d["anchor"])}</td><td>{esc(d["deadline"])}</td><td class="num">{esc(left)}</td></tr>')
+            body.append(f'<tr><td>{esc(dlbl)}</td><td>{esc(danchor)}</td><td>{esc(d["deadline"])}</td><td class="num">{esc(left)}</td></tr>')
         body.append("</table></div>")
         if report.get("rehearsal"):
             body.append(f'<div class="card"><h2>{esc(t(lang, "rehearsal_title"))}</h2>')
-            for rd in report["rehearsal"]["rounds"]:
+            for rd_raw in report["rehearsal"]["rounds"]:
+                rd = tr_rehearsal_round(lang, rd_raw)
+                sep = "、" if lang == "zh" else ", "
                 body.append(f'<p style="margin:10px 0 2px"><b>{esc(t(lang, "hr_says"))}</b> {esc(rd["hr_says"])}</p>')
                 body.append(f'<p style="margin:0"><span class="sub">{esc(t(lang, "hr_why"))}</span> {esc(rd["why"])}</p>')
                 body.append(f'<p style="margin:0"><span class="sub">{esc(t(lang, "hr_counter"))}</span> {esc(rd["counter"])}</p>')
-                body.append(f'<p class="sub" style="margin:2px 0 0">{esc(t(lang, "hr_need"))} ' + "、".join(esc(n) for n in rd["need"]) + "</p>")
-            body.append(f'<p class="sub">{esc(report["rehearsal"]["tip"])}</p></div>')
+                body.append(f'<p class="sub" style="margin:2px 0 0">{esc(t(lang, "hr_need"))} ' + sep.join(esc(n) for n in rd["need"]) + "</p>")
+            if lang == "zh":
+                body.append(f'<p class="sub">{esc(report["rehearsal"]["tip"])}</p>')
+            body.append("</div>")
             body.append(evidence_html(report.get("rehearsal"), lang=lang))
         body.append("</div>")
 
@@ -1129,7 +1184,7 @@ def render_page(
         body.append(worth_html(report.get("worth"), report.get("one_final_note"), lang=lang))
         body.append(materials_html(report.get("materials") or [], report.get("evidence_score"), lang=lang))
         body.append(venue_html(report.get("venue") or [], lang=lang))
-        if report.get("assumptions"):
+        if report.get("assumptions") and lang == "zh":
             body.append(f'<div class="card ask"><h2>{esc(t(lang, "assumptions_title"))}</h2>')
             for a in report["assumptions"]:
                 body.append(f'<p style="margin:3px 0">· {esc(a)}</p>')

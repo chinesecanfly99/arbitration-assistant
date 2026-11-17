@@ -165,3 +165,11 @@ def test_console_ui_bilingual_tabs_and_async_api(server):
     })
     assert code == 200
     assert 'id="sec-compare"' not in no_cmp_html
+
+
+def test_run_py_cloud_port_binding():
+    import run
+
+    assert run._resolve_bind([], {}) == ("127.0.0.1", 8765, False, False)
+    assert run._resolve_bind(["--lan"], {}) == ("0.0.0.0", 8765, False, True)
+    assert run._resolve_bind([], {"PORT": "8080"}) == ("0.0.0.0", 8080, True, True)
