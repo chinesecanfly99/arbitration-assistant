@@ -28,7 +28,7 @@ DEFAULT_NAME = "劳动仲裁维权助手_交付包.zip"
 
 SKIP_DIRS = {".libs", ".libs_off", "__pycache__", ".pytest_cache", ".git", "_tmp_profile",
              "uploads", ".mypy_cache", ".ruff_cache", ".coverage_html"}
-SKIP_FILES = {"_tmp_report.html", ".coverage"}
+SKIP_FILES = {"_tmp_report.html", ".coverage", ".env"}
 SKIP_EXT = (".pyc", ".zip", ".log")
 
 # 放在项目上一级的规划文档，一起打进交付包（有就带，没有就算了）

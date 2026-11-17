@@ -25,6 +25,23 @@ if SRC not in sys.path:
 DEFAULT_PORT = 8765
 
 
+def _load_local_env(path: str | None = None) -> None:
+    """读取本地 .env（仅在启动入口加载，不污染单测且不进 Git）。"""
+    env_path = path or os.path.join(ROOT, ".env")
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k:
+                os.environ.setdefault(k, v)
+
+
 def free_port(preferred: int = DEFAULT_PORT, tries: int = 12) -> int:
     """从 preferred 开始找一个能绑的端口；全被占就让系统分配（返回 0 的实际端口）。"""
     for port in range(preferred, preferred + tries):
@@ -41,6 +58,7 @@ def free_port(preferred: int = DEFAULT_PORT, tries: int = 12) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _load_local_env()
     from http.server import ThreadingHTTPServer
 
     from arb.console import enable_utf8

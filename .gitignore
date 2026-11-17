@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .coverage
+.idea/
+.env
+.env.*
 
 # 临时文件
 _tmp_profile/
