@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: arbitration-assistant
+    runtime: python
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: python run_tests.py
+    startCommand: python -u run.py
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHONIOENCODING
+        value: utf-8
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ARB_LLM_BASE_URL
+        value: https://api.deepseek.com/v1
+      - key: ARB_LLM_MODEL
+        value: deepseek-chat
+      - key: ARB_LLM_API_KEY
+        sync: false

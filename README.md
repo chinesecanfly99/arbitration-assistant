@@ -31,6 +31,12 @@ python run_tests.py          # 跑测试（零安装，见下一节）
 | 要彩排答辩的人 | [`docs/rehearsal.md`](docs/rehearsal.md)（3 遍演练清单 + 8 个必被问的问题） |
 | 想复现数字的人 | [`docs/eval_report.md`](docs/eval_report.md) + [`docs/ablation.md`](docs/ablation.md) |
 
+## 免费云端部署（Render）
+
+仓库包含 [`render.yaml`](render.yaml)，用于创建 **新加坡 Free Web Service**，支持 HTTPS 和 GitHub 更新后自动部署。操作步骤见 [`docs/render_deploy.md`](docs/render_deploy.md)。闲置 15 分钟会休眠，再次打开通常需要约一分钟；DeepSeek API 调用仍单独计费。
+
+API Key 只填入 Render 的 `ARB_LLM_API_KEY` 环境变量，不提交 `.env` 或任何真实密钥。原 Zeabur 平台已公告将于 2026 年底停止运营，改用 Render 方案。
+
 ## 它回答四个问题，不止"多少钱"
 
 | 问题 | 谁回答 | 落点 |
