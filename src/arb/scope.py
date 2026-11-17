@@ -18,17 +18,17 @@ from dataclasses import dataclass, field
 OUT_OF_SCOPE = [
     {
         "key": "工伤",
-        "patterns": [r"工伤", r"上班路上.{0,6}(?:撞|摔|车祸)", r"认定.{0,4}工伤"],
+        "patterns": [r"工伤", r"上班路上.{0,6}(?:撞|摔|车祸)", r"认定.{0,4}工伤", r"(?i)\bwork[- ]related\s+injury\b|\bwork\s+injury\b"],
         "redirect": "去人社局工伤科做工伤认定（先认定、后劳动能力鉴定，都是行政程序，不是仲裁）。带：事故证明、劳动关系材料、病历与医疗票据。单位不配合的，可先单独申请确认劳动关系。",
     },
     {
         "key": "社保补缴",
-        "patterns": [r"社保.{0,10}(?:没交|未缴|补缴|断缴|能补|可以补)", r"(?:没|未|不).{0,8}(?:交|缴).{0,3}社保", r"补缴.{0,4}社保", r"五险.{0,4}(?:没|未)"],
+        "patterns": [r"社保.{0,10}(?:没交|未缴|补缴|断缴|能补|可以补)", r"(?:没|未|不).{0,8}(?:交|缴).{0,3}社保", r"补缴.{0,4}社保", r"五险.{0,4}(?:没|未)", r"(?i)\bsocial\s+insurance\b"],
         "redirect": "社保补缴不属于仲裁受理范围，走行政征收：社保征收机构 / 12333。带：劳动合同、工资流水、社保缴费记录。",
     },
     {
         "key": "公积金",
-        "patterns": [r"公积金"],
+        "patterns": [r"公积金", r"(?i)\bhousing\s+fund\b"],
         "redirect": "住房公积金不属于仲裁受理范围，去公积金管理中心投诉（行政路径）。带：劳动合同、工资流水。",
     },
 ]
@@ -43,14 +43,14 @@ RED_LINE_PATTERNS = [
 
 # 案由关键词（按优先级从高到低匹配）
 CAUSE_RULES = [
-    ("illegal_dismissal", [r"违法解除", r"违法辞退", r"口头辞退", r"被辞", r"让我(?:当天|立刻|马上|明天)?走", r"不要我了", r"开除", r"把我(?:辞|开)"]),
-    ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"二倍工资", r"双倍工资", r"补签", r"一直没签", r"两份都收走", r"都收走了"]),
-    ("overtime", [r"加班", r"周末上班", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班"]),
-    ("annual_leave", [r"年假", r"年休假"]),
-    ("unpaid_wage", [r"拖欠", r"欠.{0,12}工资", r"没发工资", r"工资.{0,6}(?:没发|没结|没给|欠着|未发|未结)", r"扣工资", r"克扣"]),
-    ("severance", [r"经济补偿", r"补偿金", r"裁员", r"协商解除", r"到期不续", r"合同到期"]),
-    ("pregnant_protection", [r"怀孕", r"孕期", r"产假", r"哺乳期", r"三期"]),
-    ("mutual_agreement", [r"协商一致", r"谈好", r"签了协议"]),
+    ("illegal_dismissal", [r"违法解除", r"违法辞退", r"口头辞退", r"被辞", r"让我(?:当天|立刻|马上|明天)?走", r"不要我了", r"开除", r"把我(?:辞|开)", r"(?i)\b(?:fired|dismissed|wrongful\s+termination|illegal\s+dismissal|laid\s+off)\b"]),
+    ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"二倍工资", r"双倍工资", r"补签", r"一直没签", r"两份都收走", r"都收走了", r"(?i)\b(?:no|without|never\s+signed)\b.{0,20}\bcontract\b"]),
+    ("overtime", [r"加班", r"周末上班", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班", r"(?i)\bovertime\b"]),
+    ("annual_leave", [r"年假", r"年休假", r"(?i)\bannual\s+leave\b"]),
+    ("unpaid_wage", [r"拖欠", r"欠.{0,12}工资", r"没发工资", r"工资.{0,6}(?:没发|没结|没给|欠着|未发|未结)", r"扣工资", r"克扣", r"(?i)\bunpaid\s+(?:wage|wages|salary)\b"]),
+    ("severance", [r"经济补偿", r"补偿金", r"裁员", r"协商解除", r"到期不续", r"合同到期", r"(?i)\b(?:severance|restructuring|contract\s+expired)\b"]),
+    ("pregnant_protection", [r"怀孕", r"孕期", r"产假", r"哺乳期", r"三期", r"(?i)\bpregnant|pregnancy\b"]),
+    ("mutual_agreement", [r"协商一致", r"谈好", r"签了协议", r"(?i)\bmutual\s+agreement\b"]),
 ]
 
 DEPARTMENT = "用工所在地或用人单位所在地的劳动人事争议仲裁委员会"
@@ -97,7 +97,7 @@ def check_red_lines(text: str) -> list[str]:
 # 直接索要"包赢/胜诉率"、要求教造证据：这不是能力问题，是边界问题，入口即拒
 RED_LINE_REQUESTS = [
     (
-        r"(?:能不能|会不会|有没有把握|有多大把握)\s*(?:赢|胜|拿得到)|胜诉率|胜算|赢的?概率|能赢吗|几分把握",
+        r"(?:能不能|会不会|有没有把握|有多大把握)\s*(?:赢|胜|拿得到)|胜诉率|胜算|赢的?概率|能赢吗|几分把握|(?i:\b(?:win\s+rate|chances?\s+of\s+winning|probability\s+of\s+winning|will\s+i\s+win)\b)",
         "不预测胜诉率",
         "我只能告诉你证据缺口和裁判倾向，不给概率——谁给概率谁在骗你。",
         ["把「有没有书面解除通知」「考勤/工资流水在谁手上」这两件事补齐，比问胜率有用得多"],

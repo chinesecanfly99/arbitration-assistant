@@ -1,23 +1,17 @@
 """控制台版单页前端（纯标准库，零依赖）：python -m arb.web
 
 特性：
-- 双栏控制台布局：左侧「演示案例库」+ 工作台视图导航，右侧「输入控制台 + 结果工作台」
-- 普通 AI vs 本系统同屏对比视图（支持配置 API Key 实时实测，无 Key 时自动提供离线典型对照）
-- 按需展开的智能要素引导（默认收起 35 个术语芯片，保持控制台清爽；缺字段时精准提示补录）
-- 浏览器原生中文语音输入（Web Speech API，零后端依赖，不支持时友好降级）
-
-路由：
-    GET  /                  控制台首页（支持 ?case=<id> 直接运行预设案例）
-    POST /analyze           计算并返回控制台结果页
-    GET  /print?story=...   打印/导 PDF 用纯净版页面
-    GET  /report?story=...  下载 Markdown 测算单
-    GET  /pdf?story=...     下载 PDF 报告
-    GET  /application?story=... 下载仲裁申请书草稿
+- 英文优先双语控制台（默认打开英文界面，右上角一键切换 EN / 中文）
+- 丰富和谐的多彩工作台配色 + 分板块 Tab 面板（01 总览对比 / 02 法条与完整度 / 03 时效与抗辩 / 04 路径与导出），告别冗长堆叠
+- 左侧紧凑版「演示案例库」（8 个案例：5 个合规可算 + 3 个边界拦截）与模块导航联动
+- 毫秒级先出规则结果 + /api/compare 异步加载 DeepSeek 实时对比，不再阻塞整页渲染
+- 按需展开的智能要素引导 + 原生中英文语音输入（Web Speech API）
 """
 from __future__ import annotations
 
 import html
 import json
+import time
 import urllib.parse
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,8 +20,16 @@ from . import llm
 from .application import render_application, render_notes
 from .chips import groups
 from .cli import render_markdown
-from .compare import DEMO_CASES, compare_with_generic_ai, get_demo_case, match_demo_by_story
+from .compare import (
+    DEMO_CASES,
+    _resolve_live_cfg,
+    compare_with_generic_ai,
+    get_demo_case,
+    has_live_cache,
+    match_demo_by_story,
+)
 from .evidence import rows as evidence_rows, summary as evidence_summary
+from .i18n import BURDEN_EN, t, tr_decision, tr_field_label, tr_item
 from .map import completeness, summary_line
 from .pdf import render_pdf
 from .pipeline import analyze, covered_cities
@@ -35,180 +37,212 @@ from .pipeline import analyze, covered_cities
 CSS = """
 *{box-sizing:border-box}
 :root{
-  --bg:#f1f5f9;--card:#ffffff;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;
-  --side:#0f172a;--side-hover:#1e293b;--side-border:#1e293b;--primary:#2563eb;
-  --primary-hover:#1d4ed8;--ok:#15803d;--ok-bg:#ecfdf5;--ok-bd:#a7f3d0;
-  --warn:#b45309;--warn-bg:#fffbeb;--warn-bd:#fde68a;
-  --fail:#b91c1c;--fail-bg:#fef2f2;--fail-bd:#fecaca;
+  --bg:#f5f4f0;--card:#ffffff;--border:#e4e2dc;--text:#111827;--muted:#5b6472;
+  --primary:#1d4ed8;--sapphire:#1e40af;--teal:#0f766e;--emerald:#059669;--amber:#b45309;--rose:#be123c;
 }
-body{margin:0;font:15px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
-     color:var(--text);background:var(--bg)}
+body{margin:0;font:14.5px/1.6 -apple-system,"Inter","PingFang SC","Microsoft YaHei",sans-serif;
+     color:var(--text);background:var(--bg);font-variant-numeric:tabular-nums}
 a{color:var(--primary);text-decoration:none}
 a:hover{text-decoration:underline}
-h1{font-size:22px;margin:0 0 6px;line-height:1.35}
-h2{font-size:16px;margin:0 0 10px;padding-left:10px;border-left:4px solid var(--primary);line-height:1.4}
-h3{font-size:15px;margin:14px 0 6px}
-.sub{color:var(--muted);font-size:13.5px;margin:0 0 12px}
+h1{font-size:21px;margin:0 0 6px;line-height:1.35;letter-spacing:-.2px}
+h2{font-size:15px;margin:0 0 12px;padding-left:10px;border-left:3px solid var(--primary);line-height:1.35;font-weight:700}
+h3{font-size:14.5px;margin:12px 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 10px}
 
-/* Console Layout */
+/* Shell & Sidebar (Charcoal-Slate Editorial Frame) */
 .app-shell{display:flex;min-height:100vh}
-.sidebar{width:280px;flex-shrink:0;background:var(--side);color:#e2e8f0;padding:18px 14px 28px;
-         display:flex;flex-direction:column;gap:16px;border-right:1px solid var(--side-border)}
-.brand{display:flex;flex-direction:column;gap:6px;padding:4px 6px 12px;border-bottom:1px solid #1e293b}
-.brand-title{font-size:17px;font-weight:700;color:#fff;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
-.brand-pill{display:inline-block;width:fit-content;font-size:11.5px;padding:2px 8px;border-radius:999px;
-            background:rgba(16,185,129,.16);color:#6ee7b7;border:1px solid rgba(16,185,129,.35)}
-.side-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;margin:4px 6px 6px}
-.case-list{display:flex;flex-direction:column;gap:8px}
-.case-btn{width:100%;text-align:left;background:#162033;color:#e2e8f0;border:1px solid #263449;
-          border-radius:10px;padding:10px 11px;cursor:pointer;transition:.15s;margin:0}
-.case-btn:hover{background:#1e293b;border-color:#3b82f6}
-.case-btn.active{background:#1d4ed8;border-color:#60a5fa;color:#fff;box-shadow:0 4px 12px rgba(37,99,235,.32)}
-.case-top{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13.5px;font-weight:600;line-height:1.35}
-.case-desc{font-size:12px;color:#94a3b8;margin-top:4px;line-height:1.45}
-.case-btn.active .case-desc{color:#dbeafe}
-.case-tag{font-size:11px;padding:1px 7px;border-radius:999px;white-space:nowrap;font-weight:500}
-.case-tag.ok{background:rgba(16,185,129,.18);color:#6ee7b7}
-.case-tag.info{background:rgba(56,189,248,.18);color:#7dd3fc}
-.case-tag.warn{background:rgba(245,158,11,.2);color:#fcd34d}
-.case-tag.fail{background:rgba(239,68,68,.2);color:#fca5a5}
-.case-btn.active .case-tag{background:rgba(255,255,255,.22);color:#fff}
+.sidebar{width:260px;flex-shrink:0;background:#141923;
+         color:#e5e7eb;padding:18px 14px 24px;display:flex;flex-direction:column;gap:16px;
+         border-right:1px solid #242b38}
+.brand{padding:2px 4px 14px;border-bottom:1px solid #242b38}
+.brand-title{font-size:15.5px;font-weight:700;color:#f9fafb;display:flex;align-items:center;gap:8px;letter-spacing:-.1px}
+.brand-pill{display:inline-block;margin-top:6px;font-size:11.5px;padding:2px 8px;border-radius:6px;
+            background:#064e3b;color:#a7f3d0;font-weight:600}
+.side-label{font-size:11.5px;letter-spacing:.3px;color:#9ca3af;margin:2px 6px 6px;font-weight:600}
 
-.nav-links{display:flex;flex-direction:column;gap:4px;margin-top:auto;padding-top:12px;border-top:1px solid #1e293b}
-.nav-link{display:block;padding:7px 10px;border-radius:8px;color:#cbd5e1;font-size:13px}
-.nav-link:hover{background:#1e293b;color:#fff;text-decoration:none}
+/* Sidebar Module Tabs */
+.mod-nav{display:flex;flex-direction:column;gap:3px}
+.mod-btn{width:100%;text-align:left;background:transparent;color:#cbd5e1;border:1px solid transparent;
+         border-radius:7px;padding:8px 10px;font-size:13px;font-weight:500;cursor:pointer;transition:.12s;margin:0}
+.mod-btn:hover{background:#1e2533;color:#fff}
+.mod-btn.active{background:#1d4ed8;color:#fff;font-weight:600}
 
-.workspace{flex:1;min-width:0;padding:18px 24px 56px;max-width:1160px}
+/* Compact Demo Case Library with Status Dots */
+.case-list{display:flex;flex-direction:column;gap:4px}
+.case-btn{width:100%;text-align:left;background:#1a2130;color:#e2e8f0;
+          border:1px solid #283142;border-radius:7px;padding:7px 9px;cursor:pointer;
+          transition:.12s;margin:0;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.case-btn:hover{background:#232d40;border-color:#3b82f6}
+.case-btn.active{background:#1e3a8a;border-color:#60a5fa;color:#fff}
+.case-left{display:flex;align-items:center;gap:7px;min-width:0}
+.case-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.case-dot.ok{background:#10b981}
+.case-dot.warn{background:#f59e0b}
+.case-dot.fail{background:#f43f5e}
+.case-name{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.case-tag{font-size:10.5px;color:#94a3b8;flex-shrink:0;font-weight:500}
+.case-btn.active .case-tag{color:#bfdbfe}
+.side-specs{margin-top:auto;padding-top:12px;border-top:1px solid #242b38;font-size:12px;color:#9ca3af;line-height:1.7}
+.side-reset{display:block;margin-top:8px;padding:6px 10px;border-radius:6px;background:#1e2533;border:1px solid #2e3748;
+            color:#e5e7eb;font-size:12.5px;text-align:center;font-weight:500}
+.side-reset:hover{background:#283142;text-decoration:none}
+
+/* Workspace & Topbar */
+.workspace{flex:1;min-width:0;padding:20px 28px 56px;max-width:1200px}
 .topbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;
-        margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.topbar-title{font-size:19px;font-weight:700;margin:0}
-.topbar-sub{font-size:13px;color:var(--muted);margin:2px 0 0}
+        margin-bottom:16px;padding:14px 18px;background:#fff;border:1px solid var(--border);border-radius:10px}
+.topbar-title{font-size:17.5px;font-weight:700;margin:0;color:var(--text);letter-spacing:-.2px}
+.topbar-sub{font-size:12.5px;color:var(--muted);margin:2px 0 0}
 .status-pills{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.pill{font-size:12px;padding:4px 10px;border-radius:999px;background:#e0f2fe;color:#0369a1;font-weight:500}
-.pill.green{background:#dcfce7;color:#15803d}
-.pill.slate{background:#e2e8f0;color:#334155}
+.pill{font-size:11.5px;padding:3px 9px;border-radius:6px;background:#eff6ff;color:#1e40af;border:1px solid #dbeafe;font-weight:600}
+.pill.green{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
+.pill.violet{background:#f0fdfa;color:#0f766e;border-color:#99f6e4}
+.pill.slate{background:#f3f4f6;color:#4b5563;border-color:#e5e7eb}
 
-/* Input Console */
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:14px 0;
-      box-shadow:0 1px 2px rgba(15,23,42,.04)}
-.console-card{margin-top:0;border-color:#cbd5e1}
+/* Language Switcher */
+.lang-sw{display:inline-flex;border:1px solid #d1d5db;border-radius:7px;overflow:hidden;background:#f9fafb}
+.lang-sw button{border:0;background:transparent;padding:4px 11px;font-size:12px;font-weight:600;color:#4b5563;cursor:pointer;margin:0}
+.lang-sw button.on{background:#111827;color:#fff}
+
+/* Console Input Card */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin:14px 0}
+.console-card{margin-top:0}
 .console-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-.console-title{font-weight:600;font-size:14.5px;color:var(--text)}
+.console-title{font-weight:600;font-size:13.5px;color:var(--text)}
 .clear-link{font-size:12.5px;color:var(--muted);cursor:pointer;background:none;border:0;padding:2px 6px;width:auto;margin:0}
-.clear-link:hover{color:var(--fail)}
-textarea{width:100%;min-height:112px;padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;
-         font-size:15px;line-height:1.6;background:#fff;color:var(--text);resize:vertical;font-family:inherit}
-textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.clear-link:hover{color:var(--rose)}
+textarea{width:100%;min-height:86px;padding:11px 13px;border:1px solid #d1d5db;border-radius:8px;
+         font-size:14.5px;line-height:1.55;background:#fafaf9;color:var(--text);resize:vertical;font-family:inherit}
+textarea:focus{outline:none;background:#fff;border-color:var(--primary);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
 .toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
 .tool-left,.tool-right{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.btn-tool{padding:7px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#1e293b;
-          font-size:13.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;width:auto;margin:0}
-.btn-tool:hover{background:#eef2ff;border-color:#93c5fd}
-.btn-tool.recording{background:#fef2f2;border-color:#ef4444;color:#b91c1c;animation:pulse 1.2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
-.btn-primary{padding:9px 20px;border:0;border-radius:9px;background:var(--primary);color:#fff;font-size:14.5px;
-             font-weight:600;cursor:pointer;width:auto;margin:0}
-.btn-primary:hover{background:var(--primary-hover)}
-.switch{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;color:#334155;cursor:pointer;user-select:none}
+.btn-tool{padding:6px 12px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#1f2937;
+          font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;width:auto;margin:0}
+.btn-tool:hover{background:#f3f4f6;border-color:#9ca3af}
+.btn-tool.recording{background:#fef2f2;border-color:#dc2626;color:#b91c1c}
+.btn-primary{padding:8px 18px;border:0;border-radius:7px;background:var(--primary);
+             color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;width:auto;margin:0}
+.btn-primary:hover{background:var(--sapphire)}
+.switch{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:pointer;user-select:none}
 .switch input{width:15px;height:15px;accent-color:var(--primary);cursor:pointer}
-.voice-tip{font-size:12.5px;color:var(--muted);margin-top:6px;min-height:18px}
+.voice-tip{font-size:12px;color:var(--muted);margin-top:5px}
 
-/* Collapsible Drawers */
-.drawer{margin-top:12px;padding:12px 14px;border-radius:10px;background:#f8fafc;border:1px dashed #cbd5e1;display:none}
+/* Drawers */
+.drawer{margin-top:10px;padding:12px 14px;border-radius:8px;background:#fafaf9;border:1px solid var(--border);display:none}
 .drawer.open{display:block}
 .api-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
-.api-grid input{width:100%;padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff}
-
-/* Chips inside collapsible drawer & missing-field fill */
+.api-grid input{width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;background:#fff}
 .chips{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 0}
-.chip{border:1px solid #cbd5e1;background:#fff;color:#1f2329;border-radius:20px;padding:5px 11px;
-      font-size:13px;width:auto;margin:0;cursor:pointer}
-.chip:hover{border-color:var(--primary);background:#eff6ff}
-.groupname{font-size:12.5px;font-weight:600;color:#475569;margin:10px 0 2px}
-#explain{margin-top:10px;font-size:13.5px;color:#334155;background:#fff;border-left:3px solid var(--primary);
-         padding:8px 12px;border-radius:0 8px 8px 0;display:none}
+.chip{border:1px solid #d1d5db;background:#fff;color:#1f2937;border-radius:6px;padding:5px 10px;
+      font-size:12.5px;width:auto;margin:0;cursor:pointer}
+.chip:hover{border-color:var(--primary);background:#eff6ff;color:var(--primary)}
+.groupname{font-size:12px;font-weight:600;color:#4b5563;margin:10px 0 2px}
+#explain{margin-top:10px;font-size:13px;color:#374151;background:#fff;border-left:3px solid var(--primary);
+         padding:8px 12px;border-radius:0 6px 6px 0;display:none}
 
-/* Comparison Dual-Pane */
-.compare-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
-.cmp-card{border-radius:12px;padding:16px;background:#fff;border:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
-.cmp-ai{border-color:#fecaca;background:linear-gradient(180deg,#fffafa 0%,#ffffff 60px)}
-.cmp-ours{border-color:#a7f3d0;background:linear-gradient(180deg,#f0fdf4 0%,#ffffff 60px)}
+/* KPI Strip — "One Bright Element" (Deep Jade Hero + Clean Crisp Peers) */
+.kpi-grid{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px;margin:14px 0}
+.kpi-card{border-radius:10px;padding:14px 16px;background:#fff;border:1px solid var(--border)}
+.kpi-1{background:#064e3b;border-color:#065f46;color:#ecfdf5}
+.kpi-1 .kpi-lbl{color:#a7f3d0}
+.kpi-1 .kpi-val{color:#ffffff;font-size:23px}
+.kpi-2{border-top:3px solid #1d4ed8}
+.kpi-3{border-top:3px solid #d97706}
+.kpi-4{border-top:3px solid #0f766e}
+.kpi-lbl{font-size:12px;color:var(--muted);font-weight:600}
+.kpi-val{font-size:20px;font-weight:700;margin-top:4px;color:var(--text);letter-spacing:-.3px}
+
+/* Tab Bar & Panels */
+.tab-bar{display:flex;flex-wrap:wrap;gap:4px;margin:14px 0 6px;padding:5px;background:#fff;
+         border:1px solid var(--border);border-radius:9px}
+.tab-btn{border:0;background:transparent;color:#4b5563;padding:7px 14px;border-radius:6px;font-size:13px;
+         font-weight:600;cursor:pointer;margin:0}
+.tab-btn:hover{background:#f3f4f6;color:var(--text)}
+.tab-btn.active{background:#111827;color:#fff}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* Side-by-Side Comparison */
+.compare-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0 14px}
+.cmp-card{border-radius:10px;padding:16px;background:#fff;border:1px solid var(--border);
+          display:flex;flex-direction:column;gap:10px}
+.cmp-ai{border-top:3px solid var(--rose)}
+.cmp-ours{border-top:3px solid var(--emerald)}
 .cmp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:8px;border-bottom:1px solid #f1f5f9}
-.cmp-title{font-weight:700;font-size:15px}
-.cmp-ai .cmp-title{color:#991b1b}
-.cmp-ours .cmp-title{color:#166534}
-.cmp-mode{font-size:11.5px;padding:2px 8px;border-radius:999px;background:#f1f5f9;color:#475569}
-.cmp-reply{font-size:14px;line-height:1.65;color:#334155;background:#f8fafc;border-radius:8px;padding:10px 12px;border:1px solid #e2e8f0;white-space:pre-wrap}
-.flaw-list{display:flex;flex-direction:column;gap:6px;margin-top:2px}
-.flaw-item{font-size:12.5px;padding:5px 9px;border-radius:7px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
-.pro-item{font-size:12.5px;padding:5px 9px;border-radius:7px;background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}
-.hero-total{font-size:28px;font-weight:800;color:#15803d;letter-spacing:-.3px}
+.cmp-title{font-weight:700;font-size:14px}
+.cmp-ai .cmp-title{color:#9f1239}
+.cmp-ours .cmp-title{color:#065f46}
+.cmp-mode{font-size:11.5px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#4b5563;font-weight:600}
+.cmp-reply{font-size:13.5px;line-height:1.65;color:#1f2937;background:#fafaf9;border-radius:7px;
+           padding:11px 13px;border:1px solid #e5e7eb;white-space:pre-wrap}
+.cmp-spinner{display:inline-block;width:13px;height:13px;border:2px solid #d1d5db;border-top-color:var(--primary);
+             border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.flaw-list{display:flex;flex-direction:column;gap:5px}
+.flaw-item{font-size:12.5px;padding:6px 10px;border-radius:6px;background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}
+.pro-item{font-size:12.5px;padding:6px 10px;border-radius:6px;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+.hero-total{font-size:24px;font-weight:800;color:#065f46;letter-spacing:-.3px}
 
-/* Workspace Section Tabs */
-.ws-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:10px}
-.ws-tab{font-size:13px;padding:5px 12px;border-radius:7px;background:#f1f5f9;color:#334155;font-weight:500}
-.ws-tab:hover{background:#e0e7ff;color:#1d4ed8;text-decoration:none}
-
-/* Existing Report Components */
-.total{font-size:28px;font-weight:700;color:#c0392b}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:8px 6px;border-bottom:1px solid #eef0f3;text-align:left;vertical-align:top}
+/* Report Cards & Tables */
+.total{font-size:26px;font-weight:800;color:var(--rose)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{padding:8px 6px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}
 td.num,th.num{text-align:right;white-space:nowrap}
-.badge{display:inline-block;padding:1px 8px;border-radius:20px;font-size:12px;background:#e8f2ff;color:#2557c0;margin-left:6px}
-.badge.ok{background:#e7f7ed;color:#1a7f45}
-.badge.warn{background:#fff4e5;color:#b26a00}
-.badge.unit{background:#fff4e5;color:#b26a00}
-.badge.both{background:#eef3ff;color:#2557c0}
-.badge.me{background:#e7f7ed;color:#1a7f45}
-.badge.fail{background:#ffe8e8;color:#c0392b}
-blockquote{margin:6px 0 0;padding:8px 12px;background:#f5f7fb;border-left:3px solid #cfd8e6;font-size:13.5px;color:#4b5563}
+.badge{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;background:#e0e7ff;color:#3730a3;margin-left:6px;font-weight:600}
+.badge.ok{background:#d1fae5;color:#065f46}
+.badge.warn{background:#fef3c7;color:#92400e}
+.badge.unit{background:#fef3c7;color:#92400e}
+.badge.both{background:#e0e7ff;color:#3730a3}
+.badge.me{background:#d1fae5;color:#065f46}
+.badge.fail{background:#ffe4e6;color:#9f1239}
+blockquote{margin:6px 0 0;padding:8px 12px;background:#f8fafc;border-left:3px solid #94a3b8;font-size:13px;color:#475569}
 details{margin:6px 0}
-summary{cursor:pointer;color:var(--primary);font-size:13.5px}
+summary{cursor:pointer;color:var(--primary);font-size:13px;font-weight:500}
 .ask{background:#fffbeb;border:1px solid #fde68a}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.cell{border:1px solid #e6e8ec;border-radius:10px;padding:8px 10px;font-size:13.5px;display:flex;flex-direction:column;gap:2px;background:#fbfcfd}
-.cell .k{color:#6b7280;font-size:12.5px}
-.cell .v{color:#1f2329;word-break:break-all}
-.cell .m{font-size:12px;color:#8a919c}
-.cell.ok{border-color:#bfe8cd;background:#f2fbf5}
-.cell.ok .m{color:#1a7f45}
-.cell.missing{border-color:#ffc9c9;background:#fff5f5}
-.cell.missing .m{color:#c0392b}
-.cell.optional{background:#f8f9fb}
-.pct{font-size:15px;color:var(--primary);font-weight:600}
-.verdict{display:inline-block;padding:4px 12px;border-radius:8px;font-size:14.5px;font-weight:600;margin:2px 0 8px}
-.verdict.recommend{background:#e7f7ed;color:#1a7f45}
-.verdict.better_alternative{background:#fff4e5;color:#b26a00}
-.verdict.not_recommended{background:#f1f3f6;color:#4b5563}
-.gate{border:1px solid #e6e8ec;border-radius:10px;padding:10px 12px;margin:8px 0;background:#fbfcfd}
-.gate.pass{border-left:4px solid #1a7f45}
-.gate.warn{border-left:4px solid #b26a00;background:#fffdf7}
-.gate.fail{border-left:4px solid #c0392b;background:#fff7f7}
-.gate.info{border-left:4px solid #8a919c}
-.gate .t{font-weight:600;font-size:14px}
-.gate .m{font-size:13.5px;color:#4b5563;margin:2px 0}
-.gate ul{margin:4px 0 0;padding-left:18px;font-size:13px;color:#4b5563}
-.bar{height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;margin:2px 0 6px}
-.bar i{display:block;height:100%;background:var(--primary)}
-.dim{font-size:12.5px;color:#4b5563}
-.ok-i{color:#1a7f45;font-weight:600}
-.no-i{color:#c0392b;font-weight:600}
-.stage{font-size:12.5px;color:var(--primary);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cell{border:1px solid #e2e8f0;border-radius:9px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:2px;background:#f8fafc}
+.cell .k{color:#64748b;font-size:12px}
+.cell .v{color:#0f172a;font-weight:500;word-break:break-word}
+.cell .m{font-size:11.5px;color:#64748b}
+.cell.ok{border-color:#a7f3d0;background:#ecfdf5}
+.cell.ok .m{color:#047857;font-weight:600}
+.cell.missing{border-color:#fecdd3;background:#fff1f2}
+.cell.missing .m{color:#be123c;font-weight:600}
+.pct{font-size:14.5px;color:var(--primary);font-weight:700}
+.verdict{display:inline-block;padding:4px 12px;border-radius:8px;font-size:14px;font-weight:600;margin:2px 0 8px}
+.verdict.recommend{background:#d1fae5;color:#065f46}
+.verdict.better_alternative{background:#fef3c7;color:#92400e}
+.verdict.not_recommended{background:#f1f5f9;color:#475569}
+.gate{border:1px solid #e2e8f0;border-radius:9px;padding:9px 12px;margin:8px 0;background:#f8fafc}
+.gate.pass{border-left:4px solid #10b981}
+.gate.warn{border-left:4px solid #f59e0b;background:#fffbeb}
+.gate.fail{border-left:4px solid #ef4444;background:#fef2f2}
+.gate.info{border-left:4px solid #6366f1}
+.gate .t{font-weight:600;font-size:13.5px}
+.gate .m{font-size:13px;color:#475569;margin:2px 0}
+.gate ul{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:#475569}
+.bar{height:7px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:3px 0 8px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#06b6d4)}
+.dim{font-size:12.5px;color:#475569}
+.ok-i{color:#059669;font-weight:700}
+.no-i{color:#e11d48;font-weight:700}
+.stage{font-size:12px;color:var(--violet);font-weight:700}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.export-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-.export-btn{display:inline-block;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;
-            color:#0f172a;font-size:13.5px;font-weight:500}
-.export-btn:hover{background:#eff6ff;border-color:var(--primary);text-decoration:none}
-.foot{color:#8a919c;font-size:12.5px;margin-top:24px}
+.export-bar{display:flex;flex-wrap:wrap;gap:10px}
+.export-btn{display:inline-block;padding:8px 14px;border-radius:8px;background:linear-gradient(180deg,#fff,#f8fafc);
+            border:1px solid #cbd5e1;color:#0f172a;font-size:13px;font-weight:600}
+.export-btn:hover{background:#eff6ff;border-color:var(--primary);color:var(--primary);text-decoration:none}
+.foot{color:#64748b;font-size:12px;margin-top:20px}
 
-@media (max-width:920px){
+@media (max-width:1000px){
   .app-shell{flex-direction:column}
-  .sidebar{width:100%;border-right:0;border-bottom:1px solid var(--side-border)}
-  .compare-wrap,.two-col,.api-grid{grid-template-columns:1fr}
+  .sidebar{width:100%;border-right:0}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .compare-wrap,.two-col,.api-grid,.grid{grid-template-columns:1fr}
 }
-@media (max-width:520px){.grid{grid-template-columns:1fr}}
 @media print{
-  .sidebar,.topbar,.console-card,.ws-tabs,.compare-wrap,.chips,.noprint,form,button{display:none!important}
+  .sidebar,.topbar,.accent-bar,.console-card,.tab-bar,.kpi-grid,.compare-wrap,.chips,.noprint,form,button{display:none!important}
+  .tab-panel{display:block!important}
   .workspace{max-width:760px;margin:0 auto;padding:0}
   body{background:#fff}
 }
@@ -226,152 +260,238 @@ def _money(v) -> str:
         return esc(v)
 
 
-CONSOLE_JS = r"""
+def _js_str(s: str) -> str:
+    return json.dumps(s, ensure_ascii=False)
+
+
+def console_js(lang: str, async_compare: dict | None = None) -> str:
+    async_cfg = json.dumps(async_compare or {}, ensure_ascii=False)
+    voice_lang = "zh-CN" if lang == "zh" else "en-US"
+    v_listen = _js_str(t(lang, "voice_listening"))
+    v_done = _js_str(t(lang, "voice_done"))
+    v_unsup = _js_str(t(lang, "voice_unsupported"))
+    v_btn_idle = _js_str(t(lang, "voice_btn"))
+    v_btn_stop = _js_str(t(lang, "voice_stop"))
+    v_verified = _js_str(t(lang, "cmp_verified"))
+    v_unverified = _js_str(t(lang, "cmp_unverified"))
+    v_audit_lbl = _js_str(t(lang, "cmp_cite_audit"))
+
+    return f"""
 <script>
-(function () {
+(function () {{
   var storyBox = document.getElementById('story');
   var form = storyBox ? storyBox.form : document.querySelector('form[action="/analyze"]');
+  var langInput = document.getElementById('langInput');
 
-  // 1. 左侧演示案例库一键填入并运行
-  document.addEventListener('click', function (e) {
+  function activateTab(tabId) {{
+    document.querySelectorAll('.tab-btn').forEach(function (b) {{
+      b.classList.toggle('active', b.dataset.tab === tabId);
+    }});
+    document.querySelectorAll('.mod-btn').forEach(function (b) {{
+      b.classList.toggle('active', b.dataset.tab === tabId);
+    }});
+    document.querySelectorAll('.tab-panel').forEach(function (p) {{
+      p.classList.toggle('active', p.id === tabId);
+    }});
+  }}
+
+  document.addEventListener('click', function (e) {{
+    // 1. Tab switching (top bar + sidebar module nav)
+    var tb = e.target.closest('[data-tab]');
+    if (tb) {{
+      activateTab(tb.dataset.tab);
+      return;
+    }}
+
+    // 2. Demo case click -> fill story and submit
     var cbtn = e.target.closest('.case-btn');
-    if (cbtn && storyBox && form) {
+    if (cbtn && storyBox && form) {{
       storyBox.value = cbtn.dataset.story || '';
       var cmp = document.getElementById('compareCheck');
       if (cmp) cmp.checked = true;
       form.submit();
       return;
-    }
+    }}
 
-    // 2. 缺失字段精准补全按钮 (.chip.fill)
+    // 3. Language switch
+    var lbtn = e.target.closest('[data-lang]');
+    if (lbtn) {{
+      var newLang = lbtn.dataset.lang;
+      if (langInput) langInput.value = newLang;
+      if (storyBox && storyBox.value.trim() && form) {{
+        // If current story matches a demo case, swap to the target language's demo text
+        var cur = storyBox.value.trim();
+        document.querySelectorAll('.case-btn').forEach(function (cb) {{
+          if (cb.dataset.story === cur || cb.dataset.altStory === cur) {{
+            if (cb.dataset.altStory && cb.dataset.lang !== newLang) {{
+              storyBox.value = cb.dataset.altStory;
+            }}
+          }}
+        }});
+        form.submit();
+      }} else {{
+        window.location.href = '/?lang=' + encodeURIComponent(newLang);
+      }}
+      return;
+    }}
+
+    // 4. Missing-field fill chip
     var fill = e.target.closest('.chip.fill');
-    if (fill && storyBox) {
+    if (fill && storyBox) {{
       var add = fill.dataset.text || '';
       var val = storyBox.value;
-      var sep = (!val || /[\s，。；;,、]$/.test(val)) ? '' : '；';
+      var sep = (!val || /[\\s，。；;,、]$/.test(val)) ? '' : '；';
       storyBox.value = val + sep + add;
       storyBox.focus();
       return;
-    }
+    }}
 
-    // 3. 折叠抽屉中的术语引导芯片 (.chip)
+    // 5. Guided term chip
     var chip = e.target.closest('.chip');
-    if (chip && storyBox) {
+    if (chip && storyBox) {{
       var term = chip.dataset.term || '';
       if (!term) return;
       var val2 = storyBox.value;
-      storyBox.value = (val2 && !/[\s，。,;；]$/.test(val2)) ? val2 + '，' + term + '。' : val2 + term + '。';
+      storyBox.value = (val2 && !/[\\s，。,;；]$/.test(val2)) ? val2 + '，' + term + '。' : val2 + term + '。';
       storyBox.focus();
       var ex = document.getElementById('explain');
-      if (ex) {
+      if (ex) {{
         ex.style.display = 'block';
-        ex.innerHTML = '<b>' + term + '</b><br>' + (chip.dataset.plain || '') +
-                       '<br><span style="color:#64748b">什么时候用得上：' + (chip.dataset.when || '') + '</span>' +
-                       '<br><span style="color:#64748b">为什么要说清楚：' + (chip.dataset.why || '') + '</span>';
-      }
-    }
-  });
+        ex.innerHTML = '<b>' + term + '</b><br>' + (chip.dataset.plain || '');
+      }}
+    }}
+  }});
 
-  // 4. 抽屉展开/收起（智能要素引导 & 实时对比 API 设置）
-  function bindToggle(btnId, drawerId) {
+  // Drawers
+  function bindToggle(btnId, drawerId) {{
     var btn = document.getElementById(btnId);
     var dr = document.getElementById(drawerId);
-    if (!btn || !dr) return;
-    btn.addEventListener('click', function () {
-      dr.classList.toggle('open');
-    });
-  }
+    if (btn && dr) btn.addEventListener('click', function () {{ dr.classList.toggle('open'); }});
+  }}
   bindToggle('toggleGuideBtn', 'chipsDrawer');
   bindToggle('toggleApiBtn', 'apiDrawer');
 
   var clearBtn = document.getElementById('clearStoryBtn');
-  if (clearBtn && storyBox) {
-    clearBtn.addEventListener('click', function () {
-      storyBox.value = '';
-      storyBox.focus();
-    });
-  }
+  if (clearBtn && storyBox) {{
+    clearBtn.addEventListener('click', function () {{ storyBox.value = ''; storyBox.focus(); }});
+  }}
 
-  // 5. 浏览器原生中文语音输入 (Web Speech API)
+  // Web Speech API voice input
   var voiceBtn = document.getElementById('voiceBtn');
   var voiceTip = document.getElementById('voiceTip');
   var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var rec = null;
-  var listening = false;
-  var baseText = '';
-
-  if (voiceBtn) {
-    if (!SpeechRec) {
-      voiceBtn.addEventListener('click', function () {
-        if (voiceTip) {
-          voiceTip.textContent = '当前浏览器暂不支持原生语音听写，请使用 Chrome 或 Edge 浏览器体验语音输入，或直接打字/点击左侧演示案例。';
-        }
-      });
-    } else {
-      voiceBtn.addEventListener('click', function () {
-        if (listening && rec) {
-          rec.stop();
-          return;
-        }
+  var rec = null, listening = false, baseText = '';
+  if (voiceBtn) {{
+    if (!SpeechRec) {{
+      voiceBtn.addEventListener('click', function () {{
+        if (voiceTip) voiceTip.textContent = {v_unsup};
+      }});
+    }} else {{
+      voiceBtn.addEventListener('click', function () {{
+        if (listening && rec) {{ rec.stop(); return; }}
         rec = new SpeechRec();
-        rec.lang = 'zh-CN';
+        rec.lang = '{voice_lang}';
         rec.continuous = true;
         rec.interimResults = true;
         baseText = storyBox ? storyBox.value : '';
-        if (baseText && !/[\s，。；;,]$/.test(baseText)) {
-          baseText += '，';
-        }
-
-        rec.onstart = function () {
+        if (baseText && !/[\\s，。；;,]$/.test(baseText)) baseText += ' ';
+        rec.onstart = function () {{
           listening = true;
           voiceBtn.classList.add('recording');
-          voiceBtn.textContent = '⏹ 停止听写';
-          if (voiceTip) voiceTip.textContent = '🔴 正在听写中文口述… 说完请点击「停止听写」，可随时手动修正日期和数字。';
-        };
-
-        rec.onresult = function (event) {
-          var finalTxt = '';
-          var interimTxt = '';
-          for (var i = 0; i < event.results.length; i++) {
-            var seg = event.results[i][0].transcript;
-            if (event.results[i].isFinal) finalTxt += seg;
-            else interimTxt += seg;
-          }
-          if (storyBox) storyBox.value = baseText + finalTxt + interimTxt;
-        };
-
-        rec.onerror = function (ev) {
+          voiceBtn.textContent = {v_btn_stop};
+          if (voiceTip) voiceTip.textContent = {v_listen};
+        }};
+        rec.onresult = function (ev) {{
+          var fin = '', intr = '';
+          for (var i = 0; i < ev.results.length; i++) {{
+            var s = ev.results[i][0].transcript;
+            if (ev.results[i].isFinal) fin += s; else intr += s;
+          }}
+          if (storyBox) storyBox.value = baseText + fin + intr;
+        }};
+        rec.onerror = function (ev) {{
           listening = false;
           voiceBtn.classList.remove('recording');
-          voiceBtn.textContent = '🎙 语音输入';
-          if (voiceTip) voiceTip.textContent = '语音识别未完成（' + (ev.error || '请检查麦克风权限') + '），可直接文字输入。';
-        };
-
-        rec.onend = function () {
+          voiceBtn.textContent = {v_btn_idle};
+          if (voiceTip) voiceTip.textContent = 'Mic error: ' + (ev.error || 'permission denied');
+        }};
+        rec.onend = function () {{
           listening = false;
           voiceBtn.classList.remove('recording');
-          voiceBtn.textContent = '🎙 语音输入';
-          if (voiceTip && voiceTip.textContent.indexOf('正在听写') !== -1) {
-            voiceTip.textContent = '语音已转入输入框，建议核对一下日期与薪资金额后点击测算。';
-          }
-        };
-
+          voiceBtn.textContent = {v_btn_idle};
+          if (voiceTip) voiceTip.textContent = {v_done};
+        }};
         rec.start();
-      });
-    }
-  }
+      }});
+    }}
+  }}
 
-  // 6. 实时 API 配置仅暂存在当前浏览器会话中（不落服务端磁盘）
-  ['apiKeyInput', 'apiBaseInput', 'apiModelInput'].forEach(function (id) {
+  // Persist optional API overrides in sessionStorage
+  ['apiKeyInput', 'apiBaseInput', 'apiModelInput'].forEach(function (id) {{
     var el = document.getElementById(id);
     if (!el || !window.sessionStorage) return;
     var saved = sessionStorage.getItem('arb_' + id);
     if (saved && !el.value) el.value = saved;
-    el.addEventListener('input', function () {
-      sessionStorage.setItem('arb_' + id, el.value);
-    });
-  });
-})();
+    el.addEventListener('input', function () {{ sessionStorage.setItem('arb_' + id, el.value); }});
+  }});
+
+  // Async background LLM comparison (so rule engine renders instantaneously)
+  var asyncCfg = {async_cfg};
+  if (asyncCfg && asyncCfg.pending) {{
+    var params = new URLSearchParams();
+    params.set('story', asyncCfg.story || '');
+    params.set('lang', asyncCfg.lang || 'en');
+    var kEl = document.getElementById('apiKeyInput');
+    var bEl = document.getElementById('apiBaseInput');
+    var mEl = document.getElementById('apiModelInput');
+    if (kEl && kEl.value) params.set('api_key', kEl.value);
+    if (bEl && bEl.value) params.set('base_url', bEl.value);
+    if (mEl && mEl.value) params.set('model', mEl.value);
+
+    fetch('/api/compare', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+      body: params.toString()
+    }}).then(function (r) {{ return r.json(); }}).then(function (d) {{
+      var badge = document.getElementById('aiModeBadge');
+      var replyBox = document.getElementById('aiReplyBox');
+      var auditBox = document.getElementById('aiAuditBox');
+      var flawBox = document.getElementById('aiFlawBox');
+      if (badge) badge.textContent = d.mode_label || '';
+      if (replyBox) replyBox.textContent = d.reply || '';
+      if (auditBox) {{
+        auditBox.innerHTML = '';
+        var items = (d.cite_audit && d.cite_audit.items) || [];
+        if (items.length) {{
+          var lbl = document.createElement('span');
+          lbl.textContent = {v_audit_lbl} + ' ';
+          auditBox.appendChild(lbl);
+          items.forEach(function (c) {{
+            var sp = document.createElement('span');
+            sp.className = 'badge ' + (c.verified ? 'ok' : 'fail');
+            sp.textContent = c.cite + ' · ' + (c.verified ? {v_verified} : {v_unverified});
+            auditBox.appendChild(sp);
+          }});
+        }}
+      }}
+      if (flawBox) {{
+        flawBox.innerHTML = '';
+        if (d.error) {{
+          var errDiv = document.createElement('div');
+          errDiv.className = 'flaw-item';
+          errDiv.textContent = d.error;
+          flawBox.appendChild(errDiv);
+        }}
+        (d.flaws || []).forEach(function (f) {{
+          var div = document.createElement('div');
+          div.className = 'flaw-item';
+          div.textContent = '⚠ ' + f;
+          flawBox.appendChild(div);
+        }});
+      }}
+    }}).catch(function () {{}});
+  }}
+}})();
 </script>
 """
 
@@ -390,70 +510,76 @@ def chips_html() -> str:
     return "".join(out)
 
 
-def map_html(fields: dict, clickable: bool = False) -> str:
+def map_html(fields: dict, clickable: bool = False, lang: str = "zh") -> str:
     """9 格完整度地图：已填的绿、必填缺失的红、可选的灰。"""
     c = completeness(fields)
-    out = [f'<div class="card" id="sec-map"><h2>案件完整度 <span class="pct">{int(c["score"] * 100)}%</span></h2>']
-    out.append('<p class="sub" style="margin:4px 0 10px">' + esc(summary_line(fields)) + "</p>")
+    out = [f'<div class="card" id="sec-map"><h2>{esc(t(lang, "map_title"))} <span class="pct">{int(c["score"] * 100)}%</span></h2>']
+    out.append('<p class="sub">' + esc(summary_line(fields)) + "</p>")
     out.append('<div class="grid">')
     for r in c["rows"]:
         cls = "cell " + r["status"]
-        mark = "✓" if r["status"] == "ok" else ("可选" if r["status"] == "optional" else "缺")
+        if lang == "en":
+            mark = "✓" if r["status"] == "ok" else ("Optional" if r["status"] == "optional" else "Missing")
+        else:
+            mark = "✓" if r["status"] == "ok" else ("可选" if r["status"] == "optional" else "缺")
         val = esc(r["value"]) if r["value"] else esc(r["hint"].replace("例如：", "").replace("可选：", ""))
         out.append(
-            f'<div class="{cls}"><span class="k">{esc(r["label"])}</span>'
+            f'<div class="{cls}"><span class="k">{esc(tr_field_label(lang, r["label"]))}</span>'
             f'<span class="v">{val}</span><span class="m">{mark}</span></div>'
         )
     out.append("</div>")
     if clickable:
         miss = [r for r in c["rows"] if r["status"] == "missing"]
         if miss:
-            out.append('<p class="sub" style="margin:12px 0 6px">缺失项快速补录（点一下插入上方输入框并修改数字）：</p><div class="chips">')
+            out.append(f'<p class="sub" style="margin:12px 0 6px">{esc(t(lang, "map_fill_tip"))}</p><div class="chips">')
             for r in miss:
-                out.append(f'<button type="button" class="chip fill" data-text="{esc(r["hint"])}">补：{esc(r["label"])}</button>')
+                lbl = r["label"] if lang == "zh" else tr_field_label("en", r["label"])
+                prefix = "补：" if lang == "zh" else "+ "
+                out.append(f'<button type="button" class="chip fill" data-text="{esc(r["hint"])}">{prefix}{esc(lbl)}</button>')
             out.append("</div>")
     out.append("</div>")
     return "".join(out)
 
 
-def evidence_html(rehearsal: dict | None) -> str:
+def evidence_html(rehearsal: dict | None, lang: str = "zh") -> str:
     if not rehearsal or not rehearsal.get("evidence_checklist"):
         return ""
     rows_ = evidence_rows(rehearsal["evidence_checklist"])
-    out = ['<div class="card" id="sec-evidence"><h2>五、证据清单（谁举证）</h2>']
-    out.append('<p class="sub">' + esc(evidence_summary(rows_)) + "。依据《劳动争议调解仲裁法》第六条。</p>")
-    out.append("<table><tr><th>证据</th><th>谁出</th><th>为什么</th></tr>")
+    out = [f'<div class="card" id="sec-evidence"><h2>{esc(t(lang, "evidence_title"))}</h2>']
+    out.append('<p class="sub">' + esc(evidence_summary(rows_)) + "</p>")
+    out.append(
+        f'<table><tr><th>{esc(t(lang, "col_ev"))}</th>'
+        f'<th>{esc(t(lang, "col_who"))}</th><th>{esc(t(lang, "col_why"))}</th></tr>'
+    )
     for r in rows_:
-        badge = {
-            "单位": '<span class="badge unit">单位举证</span>',
-            "双方": '<span class="badge both">双方</span>',
-            "你": '<span class="badge me">你自己准备</span>',
-        }[r["who"]]
-        out.append(f'<tr><td>{esc(r["name"])}</td><td>{badge}</td><td class="sub" style="margin:0">{esc(r["why"])}</td></tr>')
+        who_lbl = r["who"] if lang == "zh" else BURDEN_EN.get(r["who"], r["who"])
+        if lang == "zh":
+            who_lbl = {"单位": "单位举证", "双方": "双方", "你": "你自己准备"}[r["who"]]
+        cls = {"单位": "unit", "双方": "both", "你": "me"}[r["who"]]
+        out.append(
+            f'<tr><td>{esc(r["name"])}</td><td><span class="badge {cls}">{esc(who_lbl)}</span></td>'
+            f'<td class="sub" style="margin:0">{esc(r["why"])}</td></tr>'
+        )
     out.append("</table></div>")
     return "".join(out)
 
 
 def print_page(story: str, today=None, confirmed=()) -> str:
-    """打印/导 PDF 用的整页 HTML（纯净版，不含左侧案例栏与 AI 对比视图）。"""
+    """打印/导 PDF 用的纯净版页面。"""
     r = analyze(story, today=today, mode="best_effort", confirmed=confirmed)
-    page = render_page(r, story, show_compare=False, print_mode=True)
+    page = render_page(r, story, show_compare=False, print_mode=True, lang="zh")
     tip = '<p class="noprint" style="color:#8a919c;font-size:13px">按 Ctrl+P（Mac 是 ⌘P）可存成 PDF。</p>'
     return page.replace("</body>", tip + "</body>")
 
 
-def gates_html(gates: dict | None) -> str:
-    """三道闸门：受案范围 → 资格 → 口径。每层都给出状态、理由与法条。"""
+def gates_html(gates: dict | None, lang: str = "zh") -> str:
     if not gates:
         return ""
     layers = gates.get("layers") or []
     if not layers:
         return ""
-    out = ['<div class="card" id="sec-gates"><h2>能不能申请（三道闸门）</h2>']
-    out.append(
-        '<p class="sub">第一层问「归不归仲裁管」，第二层问「你够不够格」，第三层问「数字从哪来」。'
-        "任何一层判不过，下面就不该再出现一个看起来很确定的总金额。</p>"
-    )
+    out = [f'<div class="card" id="sec-gates"><h2>{esc(t(lang, "gates_title"))}</h2>']
+    out.append(f'<p class="sub">{esc(t(lang, "gates_sub"))}</p>')
     for g in layers:
         cls = g.get("status") or "info"
         out.append(f'<div class="gate {cls}"><div class="t">{esc(g.get("title"))}</div>')
@@ -461,88 +587,74 @@ def gates_html(gates: dict | None) -> str:
         if g.get("detail"):
             out.append("<ul>" + "".join(f"<li>{esc(d)}</li>" for d in g["detail"]) + "</ul>")
         if g.get("cites"):
-            out.append(f'<div class="dim" style="margin-top:4px">依据：{esc("、".join(g["cites"]))}</div>')
+            out.append(f'<div class="dim" style="margin-top:4px">{esc("、".join(g["cites"]))}</div>')
         out.append("</div>")
     for b in gates.get("blockers") or []:
-        out.append(f'<p class="gate fail"><b>硬性障碍：</b>{esc(b)}</p>')
+        out.append(f'<p class="gate fail"><b>{esc(t(lang, "blocker_label"))}</b> {esc(b)}</p>')
     out.append("</div>")
     return "".join(out)
 
 
-def pending_html(pending: list[dict], story: str) -> str:
-    """未确认读数：本单没有用它们算钱，勾选后重算。"""
+def pending_html(pending: list[dict], story: str, lang: str = "zh") -> str:
     if not pending:
         return ""
-    out = ['<div class="card ask"><h2>有几项读数还没确认（本单没有采用）</h2>']
-    out.append(
-        '<p class="sub">模型或图片读出来的数字，没经你点头就不进计算——'
-        "一个没核对过的数字被当成结论，比算不出来更糟。</p>"
-    )
+    out = [f'<div class="card ask"><h2>{esc(t(lang, "pending_title"))}</h2>']
     out.append('<form method="post" action="/analyze">')
     out.append(f'<input type="hidden" name="story" value="{esc(story)}">')
+    out.append(f'<input type="hidden" name="lang" value="{esc(lang)}">')
     for p in pending:
         if p.get("reason") == "conflict":
+            tag = "说法不一致" if lang == "zh" else "Conflict Detected"
             out.append(
-                f'<p style="margin:10px 0 2px"><b>{esc(p.get("label"))}</b>'
-                '<span class="badge warn">说法不一致</span><br>'
-                f'<span class="sub">你原话里说的是：{esc(p.get("from_story"))}'
-                f'（本单按这个算）　建议值：{esc(p.get("suggested"))}</span></p>'
-            )
-            out.append(
+                f'<p style="margin:8px 0 2px"><b>{esc(p.get("label"))}</b>'
+                f'<span class="badge warn">{tag}</span><br>'
+                f'<span class="sub">{esc(p.get("from_story"))} vs {esc(p.get("suggested"))}</span></p>'
                 f'<label class="sub"><input type="checkbox" name="confirm" value="{esc(p.get("key"))}"> '
-                f'改用 {esc(p.get("suggested"))} 重算</label>'
+                f'{esc(t(lang, "pending_btn"))}</label>'
             )
         else:
             out.append(
-                f'<p style="margin:10px 0 2px"><b>{esc(p.get("label"))}</b> '
-                f'<span class="badge">建议值 {esc(p.get("suggested"))}</span></p>'
-            )
-            out.append(
+                f'<p style="margin:8px 0 2px"><b>{esc(p.get("label"))}</b> '
+                f'<span class="badge">{esc(p.get("suggested"))}</span></p>'
                 f'<label class="sub"><input type="checkbox" name="confirm" value="{esc(p.get("key"))}"> '
-                f'对，就是这个数，用它重算</label>'
+                f'{esc(t(lang, "pending_btn"))}</label>'
             )
-    out.append('<button type="submit" class="btn-primary" style="margin-top:10px">确认后重算</button></form></div>')
+    out.append(f'<button type="submit" class="btn-primary" style="margin-top:8px">{esc(t(lang, "pending_btn"))}</button></form></div>')
     return "".join(out)
 
 
-def materials_html(mats: list[dict], ev: dict | None) -> str:
-    """证据强度 + 材料清单（谁举证、去哪开、你有没有）。"""
+def materials_html(mats: list[dict], ev: dict | None, lang: str = "zh") -> str:
     if not mats:
         return ""
-    out = ['<div class="card" id="sec-materials"><h2>六、要带什么（材料清单 + 谁举证）</h2>']
+    out = [f'<div class="card" id="sec-materials"><h2>{esc(t(lang, "materials_title"))}</h2>']
     ev = ev or {}
     if ev:
         pct = int(ev.get("score") or 0)
-        out.append(
-            f'<p class="sub">证据强度：<b>{pct}/100</b>（{esc(ev.get("level") or "未评估")}）'
-            + ("　—　你提到手上已有的材料，已按有处理。" if ev.get("known") else
-               "　—　你还没说手上有哪些材料，这一维先按中性算。")
-            + "</p>"
-        )
+        out.append(f'<p class="sub">{esc(t(lang, "ev_strength"))} <b>{pct}/100</b> ({esc(ev.get("level") or "")})</p>')
         out.append(f'<div class="bar"><i style="width:{pct}%"></i></div>')
-        for g in ev.get("gaps") or []:
-            out.append(f'<p class="sub" style="margin:4px 0">· {esc(g)}</p>')
-    have = sum(1 for m in mats if m["have"])
-    out.append(f'<p class="sub">共 {len(mats)} 项：你说已有的 {have} 项（绿），其余 {len(mats) - have} 项要去开（红）。</p>')
-    out.append("<table><tr><th>材料</th><th>状态</th><th>为什么需要 / 怎么拿</th></tr>")
+    out.append(
+        f'<table><tr><th>{esc(t(lang, "col_mat"))}</th>'
+        f'<th>{esc(t(lang, "col_status"))}</th><th>{esc(t(lang, "col_how"))}</th></tr>'
+    )
     for m in mats:
-        flag = '<span class="ok-i">有</span>' if m["have"] else '<span class="no-i">缺</span>'
+        flag = (
+            f'<span class="ok-i">{esc(t(lang, "have"))}</span>'
+            if m["have"] else f'<span class="no-i">{esc(t(lang, "missing"))}</span>'
+        )
         out.append(
             f'<tr><td>{esc(m["name"])}<div class="dim">{esc(m.get("from_type") or "")}</div></td>'
             f'<td>{flag}</td>'
             f'<td class="sub" style="margin:0">{esc(m["purpose"])}<br>'
-            f'<span style="color:#8a919c">谁举证：{esc(m["burden"])}　怎么拿：{esc(m["how"])}</span></td></tr>'
+            f'<span style="color:#64748b">{esc(m["burden"])} · {esc(m["how"])}</span></td></tr>'
         )
     out.append("</table></div>")
     return "".join(out)
 
 
-def venue_html(blocks: list[dict]) -> str:
-    """立案路径：去哪、带什么、点一下就能打电话。"""
+def venue_html(blocks: list[dict], lang: str = "zh") -> str:
     if not blocks:
         return ""
-    out = ['<div class="card" id="sec-venue"><h2>七、去哪办（立案路径）</h2>']
-    out.append('<p class="sub">① 是主路径；② 能少跑一趟；⑤ 可以和仲裁同时走；④ 由单位发起，你了解即可；⑥ 兜底。</p>')
+    out = [f'<div class="card" id="sec-venue"><h2>{esc(t(lang, "venue_title"))}</h2>']
     for b in blocks:
         out.append(f'<div class="gate info"><span class="stage">{esc(b["stage"])}</span>')
         out.append(f'<div class="t">{esc(b["name"])}</div>')
@@ -562,31 +674,28 @@ def venue_html(blocks: list[dict]) -> str:
                 elif kind == "url":
                     links.append(f'<a href="{esc(value)}" target="_blank" rel="noopener">{esc(label)}</a>')
                 else:
-                    links.append(f'<span class="dim">{esc(label)}：{esc(value)}</span>')
-            out.append('<div style="margin-top:6px;font-size:14px">' + "　".join(links) + "</div>")
+                    links.append(f'<span class="dim">{esc(label)}: {esc(value)}</span>')
+            out.append('<div style="margin-top:6px;font-size:13px">' + "　".join(links) + "</div>")
         out.append("</div>")
     out.append("</div>")
     return "".join(out)
 
 
-def worth_html(worth: dict | None, one_final: str | None = None) -> str:
-    """值不值得去：六维打分 + 三选一结论。不是胜诉率。"""
+def worth_html(worth: dict | None, one_final: str | None = None, lang: str = "zh") -> str:
     if not worth:
         return ""
     decision = worth.get("decision") or "not_recommended"
-    out = ['<div class="card" id="sec-worth"><h2>八、值不值得去（六维加权）</h2>']
+    label = tr_decision(lang, decision, worth.get("decision_label") or "")
+    out = [f'<div class="card" id="sec-worth"><h2>{esc(t(lang, "worth_title"))}</h2>']
+    out.append(f'<div class="verdict {esc(decision)}">{esc(label)} · {esc(worth.get("score"))}/100</div>')
+    out.append(f'<p class="sub">{esc(t(lang, "worth_sub"))}</p>')
     out.append(
-        f'<div class="verdict {esc(decision)}">{esc(worth.get("decision_label"))}'
-        f'　总分 {esc(worth.get("score"))}/100</div>'
+        f'<table><tr><th>{esc(t(lang, "col_dim"))}</th>'
+        f'<th class="num">{esc(t(lang, "col_score"))}</th><th>{esc(t(lang, "col_note"))}</th></tr>'
     )
-    out.append(
-        '<p class="sub">这不是胜诉率，也不预测裁判结果；它只把「标的额、证据、一裁终局、执行、'
-        "替代路径、时效」六件事放在一起，告诉你先做哪件。</p>"
-    )
-    out.append("<table><tr><th>维度</th><th class=\"num\">分数</th><th>为什么给这个分</th></tr>")
     for d in worth.get("dimensions") or []:
         out.append(
-            f'<tr><td>{esc(d["label"])}<div class="dim">权重 {int(round(d["weight"] * 100))}%</div></td>'
+            f'<tr><td>{esc(d["label"])} <span class="dim">({int(round(d["weight"] * 100))}%)</span></td>'
             f'<td class="num">{esc(d["score"])}</td>'
             f'<td class="sub" style="margin:0">{esc(d["note"])}</td></tr>'
         )
@@ -594,180 +703,185 @@ def worth_html(worth: dict | None, one_final: str | None = None) -> str:
     alt = worth.get("alternative")
     if alt:
         out.append(
-            f'<p class="gate warn" style="margin-top:10px"><b>更快的路：{esc(alt.get("title"))}</b><br>'
-            f'{esc(alt.get("why"))}　<span class="dim">可拨 {esc(alt.get("tel"))}</span></p>'
+            f'<p class="gate warn" style="margin-top:10px"><b>{esc(alt.get("title"))}</b><br>'
+            f'{esc(alt.get("why"))} · {esc(alt.get("tel"))}</p>'
         )
     if one_final:
-        out.append(f'<p class="sub">一裁终局：{esc(one_final)}</p>')
+        out.append(f'<p class="sub">{esc(one_final)}</p>')
     out.append("</div>")
     return "".join(out)
 
 
-def sidebar_html(active_story: str = "", has_report: bool = False) -> str:
+def sidebar_html(active_story: str = "", has_report: bool = False, lang: str = "en") -> str:
     matched = match_demo_by_story(active_story)
     active_id = matched["id"] if matched else ""
     out = [
         '<aside class="sidebar">',
         '<div class="brand">',
-        '<div class="brand-title">⚖️ 劳动仲裁维权助手</div>',
-        '<span class="brand-pill">规则内核 · 零幻觉控制台</span>',
+        f'<div class="brand-title">{esc(t(lang, "brand_title"))}</div>',
+        f'<span class="brand-pill">{esc(t(lang, "brand_pill"))}</span>',
         "</div>",
-        '<div><div class="side-label">演示案例库（点击即跑）</div><div class="case-list">',
     ]
-    for c in DEMO_CASES:
-        cls = "case-btn active" if c["id"] == active_id else "case-btn"
-        out.append(
-            f'<button type="button" class="{cls}" data-story="{esc(c["story"])}">'
-            f'<div class="case-top"><span>{esc(c["title"])}</span>'
-            f'<span class="case-tag {esc(c["badge_cls"])}">{esc(c["tag"])}</span></div>'
-            f'<div class="case-desc">{esc(c["summary"])}</div></button>'
-        )
-    out.append("</div></div>")
     if has_report:
         out.append(
-            '<div class="nav-links"><div class="side-label">工作台视图</div>'
-            '<a class="nav-link" href="#sec-compare">🆚 普通 AI 对比视图</a>'
-            '<a class="nav-link" href="#sec-calc">💰 分项金额与法条核验</a>'
-            '<a class="nav-link" href="#sec-gates">🛡 三层闸门与完整度</a>'
-            '<a class="nav-link" href="#sec-evidence">📋 举证、路径与导出</a>'
-            '<a class="nav-link" href="/">↺ 重置控制台</a>'
-            "</div>"
+            f'<div><div class="side-label">{esc(t(lang, "nav_modules"))}</div><div class="mod-nav">'
+            f'<button type="button" class="mod-btn active" data-tab="tab-overview">{esc(t(lang, "mod_overview"))}</button>'
+            f'<button type="button" class="mod-btn" data-tab="tab-statutes">{esc(t(lang, "mod_statutes"))}</button>'
+            f'<button type="button" class="mod-btn" data-tab="tab-defense">{esc(t(lang, "mod_defense"))}</button>'
+            f'<button type="button" class="mod-btn" data-tab="tab-filing">{esc(t(lang, "mod_filing"))}</button>'
+            "</div></div>"
         )
-    else:
+    out.append(f'<div><div class="side-label">{esc(t(lang, "nav_cases"))}</div><div class="case-list">')
+    for c in DEMO_CASES:
+        cls = "case-btn active" if c["id"] == active_id else "case-btn"
+        c_title = c["title"] if lang == "zh" else c.get("title_en", c["title"])
+        c_tag = c["tag"] if lang == "zh" else c.get("tag_en", c["tag"])
+        c_sum = c["summary"] if lang == "zh" else c.get("summary_en", c["summary"])
+        c_story = c["story"] if lang == "zh" else c.get("story_en", c["story"])
+        alt_story = c.get("story_en", c["story"]) if lang == "zh" else c["story"]
         out.append(
-            '<div class="nav-links"><div class="side-label">内核规格</div>'
-            '<div class="nav-link">· 10 部法规 519 条原文</div>'
-            '<div class="nav-link">· 京沪广深杭 5 城独立口径</div>'
-            '<div class="nav-link">· 零第三方依赖 · 离线可用</div>'
-            "</div>"
+            f'<button type="button" class="{cls}" title="{esc(c_sum)}" '
+            f'data-lang="{esc(lang)}" data-story="{esc(c_story)}" data-alt-story="{esc(alt_story)}">'
+            f'<span class="case-left"><span class="case-dot {esc(c["badge_cls"])}"></span>'
+            f'<span class="case-name">{esc(c_title)}</span></span>'
+            f'<span class="case-tag">{esc(c_tag)}</span></button>'
         )
+    out.append("</div></div>")
+    out.append(
+        f'<div class="side-specs"><div class="side-label" style="margin-left:0">{esc(t(lang, "nav_specs"))}</div>'
+        f'<div>{esc(t(lang, "spec_laws"))}</div>'
+        f'<div>{esc(t(lang, "spec_cities"))}</div>'
+        f'<div>{esc(t(lang, "spec_offline"))}</div>'
+        f'<a class="side-reset" href="/?lang={esc(lang)}">{esc(t(lang, "reset_btn"))}</a></div>'
+    )
     out.append("</aside>")
     return "".join(out)
 
 
-def compare_html(report: dict, compare_data: dict) -> str:
-    """渲染「普通通用 AI vs 本系统规则内核」双栏对比区。"""
+def compare_html(
+    report: dict,
+    compare_data: dict | None,
+    lang: str = "en",
+    rule_ms: int = 4,
+    async_pending: bool = False,
+    model_name: str = "deepseek-chat",
+) -> str:
+    """渲染「普通 AI vs 本系统规则内核」双栏对比区（支持异步骨架屏秒出）。"""
     status = report.get("status")
+    compare_data = compare_data or {}
     cite_audit = compare_data.get("cite_audit") or {}
     out = ['<div class="compare-wrap" id="sec-compare">']
 
-    # 左栏：普通通用 AI
+    # 左栏：普通通用大模型
     out.append('<div class="cmp-card cmp-ai">')
-    out.append(
-        f'<div class="cmp-head"><span class="cmp-title">🤖 普通通用大模型（直接提问）</span>'
-        f'<span class="cmp-mode">{esc(compare_data.get("mode_label"))}</span></div>'
+    mode_lbl = (
+        f"Querying {model_name}..." if (async_pending and lang != "zh")
+        else (f"正在实时请求 {model_name}…" if async_pending else compare_data.get("mode_label", ""))
     )
-    if compare_data.get("error"):
-        out.append(f'<div class="flaw-item">{esc(compare_data["error"])}</div>')
-    out.append(f'<div class="cmp-reply">{esc(compare_data.get("reply"))}</div>')
-    if cite_audit.get("items"):
-        audit_badges = []
-        for c in cite_audit["items"]:
-            b_cls = "ok" if c["verified"] else "fail"
-            mark = "核验通过" if c["verified"] else "库中未查到"
-            audit_badges.append(f'<span class="badge {b_cls}">{esc(c["cite"])} · {mark}</span>')
-        out.append('<div class="dim">法条核验结果：' + "".join(audit_badges) + "</div>")
-    out.append('<div class="flaw-list">')
-    for f in compare_data.get("flaws") or []:
-        out.append(f'<div class="flaw-item">⚠ {esc(f)}</div>')
-    out.append("</div></div>")
+    out.append(
+        f'<div class="cmp-head"><span class="cmp-title">{esc(t(lang, "cmp_ai_title"))}</span>'
+        f'<span class="cmp-mode" id="aiModeBadge">{esc(mode_lbl)}</span></div>'
+    )
+    if async_pending:
+        loading_txt = t(lang, "cmp_loading", model=model_name, ms=rule_ms)
+        out.append(f'<div class="cmp-reply" id="aiReplyBox"><span class="cmp-spinner"></span>{esc(loading_txt)}</div>')
+        out.append('<div class="dim" id="aiAuditBox"></div>')
+        out.append('<div class="flaw-list" id="aiFlawBox"></div>')
+    else:
+        if compare_data.get("error"):
+            out.append(f'<div class="flaw-item">{esc(compare_data["error"])}</div>')
+        out.append(f'<div class="cmp-reply" id="aiReplyBox">{esc(compare_data.get("reply") or "")}</div>')
+        out.append('<div class="dim" id="aiAuditBox">')
+        if cite_audit.get("items"):
+            badges = []
+            for c in cite_audit["items"]:
+                b_cls = "ok" if c["verified"] else "fail"
+                mark = t(lang, "cmp_verified") if c["verified"] else t(lang, "cmp_unverified")
+                badges.append(f'<span class="badge {b_cls}">{esc(c["cite"])} · {esc(mark)}</span>')
+            out.append(f'{esc(t(lang, "cmp_cite_audit"))} ' + "".join(badges))
+        out.append("</div><div class=\"flaw-list\" id=\"aiFlawBox\">")
+        for f in compare_data.get("flaws") or []:
+            out.append(f'<div class="flaw-item">⚠ {esc(f)}</div>')
+        out.append("</div>")
+    out.append("</div>")
 
-    # 右栏：本系统规则+法条内核
+    # 右栏：本系统规则内核
     out.append('<div class="cmp-card cmp-ours">')
     out.append(
-        '<div class="cmp-head"><span class="cmp-title">🛡 本系统 · 规则 + 法条核验内核</span>'
-        '<span class="cmp-mode" style="background:#dcfce7;color:#15803d">可复算 · 可溯源</span></div>'
+        f'<div class="cmp-head"><span class="cmp-title">{esc(t(lang, "cmp_ours_title"))}</span>'
+        f'<span class="cmp-mode" style="background:#d1fae5;color:#065f46">{esc(t(lang, "cmp_ours_badge"))} · {rule_ms} ms</span></div>'
     )
     if status == "ok":
         cites = [c for it in report.get("items", []) for c in it.get("cite_texts", [])]
         verified_cites = sum(1 for it in report.get("items", []) if it.get("cite_ok"))
         total_items = len(report.get("items", []))
-        out.append(f'<div class="hero-total">合计可主张：¥{_money(report.get("total"))}</div>')
-        out.append('<div class="cmp-reply" style="background:#f8fafc">')
-        lines = []
-        for it in report.get("items", []):
-            lines.append(f'· {it["name"]}：¥{_money(it["amount"])}（{it["formula"]}）')
-        out.append(esc("\n".join(lines)))
-        out.append("</div>")
+        out.append(f'<div class="hero-total">¥{_money(report.get("total"))}</div>')
+        lines = [
+            f'· {tr_item(lang, it["name"])}: ¥{_money(it["amount"])} ({it["formula"]})'
+            for it in report.get("items", [])
+        ]
+        out.append(f'<div class="cmp-reply">{esc(chr(10).join(lines))}</div>')
         out.append('<div class="flaw-list">')
-        out.append(
-            f'<div class="pro-item">✓ 法条原文回库核验：{verified_cites}/{total_items} 项全部匹配'
-            f'（共挂载 {len(cites)} 条法规原文，下方可展开原文核对）</div>'
-        )
+        if lang == "zh":
+            out.append(f'<div class="pro-item">✓ 法条原文核验：{verified_cites}/{total_items} 项全匹配（挂载 {len(cites)} 条法规原文）</div>')
+        else:
+            out.append(f'<div class="pro-item">✓ Statute DB Verification: {verified_cites}/{total_items} items matched ({len(cites)} PRC articles linked)</div>')
         d = next((x for x in report.get("deadlines", []) if x.get("applicable")), None)
         if d:
-            left = "已过期" if d["expired"] else f'还剩 {d["days_left"]} 天'
-            out.append(f'<div class="pro-item">✓ 仲裁时效测算：{esc(d["label"])} 截止 {esc(d["deadline"])}（{esc(left)}）</div>')
-        out.append('<div class="pro-item">✓ 三层闸门已校验 + 附举证责任清单、HR 抗辩预演与申请书导出</div>')
+            left = t(lang, "expired") if d["expired"] else t(lang, "days_left", n=d["days_left"])
+            out.append(f'<div class="pro-item">✓ {esc(t(lang, "kpi_deadline"))}: {esc(d["deadline"])} ({esc(left)})</div>')
         out.append("</div>")
     elif status == "need_more":
         comp = completeness(report.get("fields") or {})
-        out.append(f'<div class="hero-total" style="color:#b45309">已拒绝瞎猜（完整度 {int(comp["score"] * 100)}%）</div>')
-        qs = "\n".join(f"· {q}" for q in report.get("questions") or [])
-        out.append(f'<div class="cmp-reply">{esc(qs)}</div>')
-        out.append(
-            '<div class="flaw-list">'
-            '<div class="pro-item">✓ 宁缺毋滥：缺少关键入离职/月薪要素时主动追问，绝不编造金额</div>'
-            '<div class="pro-item">✓ 下方完整度地图已高亮缺失项，支持一键点选补录</div>'
-            "</div>"
-        )
+        msg = f'Refused to Guess ({int(comp["score"] * 100)}% Complete)' if lang != "zh" else f'已拒绝瞎猜（完整度 {int(comp["score"] * 100)}%）'
+        out.append(f'<div class="hero-total" style="color:#d97706">{esc(msg)}</div>')
+        out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + q for q in report.get("questions") or []))}</div>')
+        out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "need_more_sub"))}</div></div>')
     elif status == "out_of_scope":
-        out.append('<div class="hero-total" style="color:#b45309">已识别：不归劳动仲裁直接管辖</div>')
+        out.append(f'<div class="hero-total" style="color:#d97706">{esc(t(lang, "out_scope_title"))}</div>')
         out.append(f'<div class="cmp-reply">{esc(report.get("redirect") or report["scope"].get("reason"))}</div>')
-        out.append(
-            '<div class="flaw-list">'
-            '<div class="pro-item">✓ 红线守护：工伤/社保/公积金/胜诉率预测绝不硬算，只给正确受理路径</div>'
-            "</div>"
-        )
+        out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "out_scope_where"))}</div></div>')
     else:
-        out.append('<div class="hero-total" style="color:#b91c1c">资格闸门拦截（暂不可申请）</div>')
-        bs = "\n".join(f"· {b}" for b in report.get("blockers") or [])
-        out.append(f'<div class="cmp-reply">{esc(bs)}</div>')
-        out.append(
-            '<div class="flaw-list">'
-            '<div class="pro-item">✓ 前置闸门拦截：先排障碍再谈金额，避免拿着假数字白跑一趟</div>'
-            "</div>"
-        )
+        out.append(f'<div class="hero-total" style="color:#e11d48">{esc(t(lang, "blocked_title"))}</div>')
+        out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + b for b in report.get("blockers") or []))}</div>')
+        out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "blocked_sub"))}</div></div>')
     out.append("</div></div>")
     return "".join(out)
 
 
-def input_console_html(story: str = "", show_compare: bool = True, report: dict | None = None) -> str:
+def input_console_html(story: str = "", show_compare: bool = True, report: dict | None = None, lang: str = "en") -> str:
     checked = "checked" if show_compare else ""
-    btn_text = "再算与对比" if report is not None else "开始测算与对比"
-    placeholder = (
-        "例如：2020年3月1日入职一家电子厂，月薪9000，一直没签书面合同。"
-        "2024年5月20日主管口头说不要我了，让我当天走人。我还有5天年假没休。"
+    btn_text = t(lang, "recalc_btn") if report is not None else t(lang, "submit_btn")
+    cfg = llm.config()
+    api_note = (
+        t(lang, "api_connected_note", model=cfg["model"], base=cfg["base"])
+        if cfg else t(lang, "api_note")
     )
     out = [
         '<section class="card console-card">',
-        '<div class="console-head"><span class="console-title">案情控制台（支持打字、语音口述，或点左侧演示案例）</span>'
-        '<button type="button" class="clear-link" id="clearStoryBtn">清空重填</button></div>',
+        f'<div class="console-head"><span class="console-title">{esc(t(lang, "console_head"))}</span>'
+        f'<button type="button" class="clear-link" id="clearStoryBtn">{esc(t(lang, "clear_btn"))}</button></div>',
         '<form method="post" action="/analyze">',
-        f'<textarea name="story" id="story" placeholder="{esc(placeholder)}">{esc(story)}</textarea>',
+        f'<input type="hidden" name="lang" id="langInput" value="{esc(lang)}">',
+        f'<textarea name="story" id="story" placeholder="{esc(t(lang, "placeholder"))}">{esc(story)}</textarea>',
         '<div class="toolbar"><div class="tool-left">',
-        '<button type="button" class="btn-tool" id="voiceBtn">🎙 语音输入</button>',
-        '<button type="button" class="btn-tool" id="toggleGuideBtn">💡 智能要素引导（按需展开）▾</button>',
-        '<button type="button" class="btn-tool" id="toggleApiBtn">⚙ 实时对比 API</button>',
+        f'<button type="button" class="btn-tool" id="voiceBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>{esc(t(lang, "voice_btn"))}</button>',
+        f'<button type="button" class="btn-tool" id="toggleGuideBtn">{esc(t(lang, "guide_btn"))} ▾</button>',
+        f'<button type="button" class="btn-tool" id="toggleApiBtn">{esc(t(lang, "api_btn"))}</button>',
         '</div><div class="tool-right">',
-        f'<label class="switch"><input type="checkbox" id="compareCheck" name="compare" value="1" {checked}> 开启普通 AI 对比</label>',
-        f'<button type="submit" class="btn-primary">{btn_text}</button>',
+        f'<label class="switch"><input type="checkbox" id="compareCheck" name="compare" value="1" {checked}> {esc(t(lang, "compare_toggle"))}</label>',
+        f'<button type="submit" class="btn-primary">{esc(btn_text)}</button>',
         "</div></div>",
         '<div class="voice-tip" id="voiceTip"></div>',
         '<div class="drawer" id="apiDrawer">',
-        (
-            f'<div class="dim"><b>已自动读取本地配置（{esc(llm.config()["model"])} @ {esc(llm.config()["base"])}）</b>'
-            '，默认直接进行实时对比；如需临时改用其他模型，可在下方覆盖：</div>'
-            if llm.config() else
-            '<div class="dim"><b>可选：填入兼容 OpenAI 协议的 API 配置进行实时大模型 PK</b>（例如 DeepSeek：<code>https://api.deepseek.com/v1</code> + <code>deepseek-chat</code>；密钥仅用于当前会话，不落盘）</div>'
-        ),
+        f'<div class="dim"><b>{esc(api_note)}</b></div>',
         '<div class="api-grid">',
-        '<input type="password" name="api_key" id="apiKeyInput" placeholder="API Key（可选，如 sk-...）" autocomplete="off">',
-        '<input type="text" name="base_url" id="apiBaseInput" placeholder="Base URL（如 https://api.deepseek.com/v1）">',
-        '<input type="text" name="model" id="apiModelInput" placeholder="模型名（如 deepseek-chat）">',
+        '<input type="password" name="api_key" id="apiKeyInput" placeholder="API Key (sk-...)" autocomplete="off">',
+        '<input type="text" name="base_url" id="apiBaseInput" placeholder="Base URL (https://api.deepseek.com/v1)">',
+        '<input type="text" name="model" id="apiModelInput" placeholder="Model (deepseek-chat)">',
         "</div></div>",
         '<div class="drawer" id="chipsDrawer">',
-        '<p class="sub" style="margin:0 0 6px">不知道法律上怎么表达？点一个词插进输入框，下面会用<b>人话</b>解释含义与用途：</p>',
+        f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, "guide_intro"))} <span class="dim">（人话辅助）</span></p>',
         chips_html(),
         '<div id="explain"></div>',
         "</div></form></section>",
@@ -782,202 +896,270 @@ def render_page(
     compare_data: dict | None = None,
     show_compare: bool = True,
     print_mode: bool = False,
+    lang: str = "zh",
+    rule_ms: int = 4,
+    async_compare: dict | None = None,
 ) -> str:
     body: list[str] = []
+    cfg = llm.config()
 
     if not print_mode:
         body.append('<div class="app-shell">')
-        body.append(sidebar_html(active_story=story, has_report=report is not None))
+        body.append(sidebar_html(active_story=story, has_report=report is not None, lang=lang))
         body.append('<main class="workspace">')
+        en_cls = "on" if lang != "zh" else ""
+        zh_cls = "on" if lang == "zh" else ""
+        live_pill = (
+            f'<span class="pill violet">{esc(t(lang, "pill_live"))} {esc(cfg["model"])}</span>'
+            if cfg else f'<span class="pill slate">{esc(t(lang, "pill_offline"))}</span>'
+        )
         body.append(
             '<header class="topbar"><div>'
-            '<div class="topbar-title">案件测算与 AI 对比工作台</div>'
-            '<div class="topbar-sub">把大白话翻译成能立案的仲裁主张 · 金额按法条规则算清、不靠模型猜</div>'
+            f'<div class="topbar-title">{esc(t(lang, "topbar_title"))}</div>'
+            f'<div class="topbar-sub">{esc(t(lang, "topbar_sub"))}</div>'
             '</div><div class="status-pills">'
-            '<span class="pill">京沪广深杭 5 城口径</span>'
-            '<span class="pill green">10 部法规 519 条已加载</span>'
-            + (
-                f'<span class="pill green">实时对比已接入：{esc(llm.config()["model"])}</span>'
-                if llm.config() else '<span class="pill slate">纯规则内核（离线对比）</span>'
-            ) +
+            f'<span class="pill">{esc(t(lang, "pill_cities"))}</span>'
+            f'<span class="pill green">{esc(t(lang, "pill_laws"))}</span>'
+            f'{live_pill}'
+            f'<div class="lang-sw"><button type="button" class="{en_cls}" data-lang="en">EN</button>'
+            f'<button type="button" class="{zh_cls}" data-lang="zh">中文</button></div>'
             "</div></header>"
         )
         if error:
             body.append(f'<div class="card ask">⚠️ {esc(error)}</div>')
-        body.append(input_console_html(story=story, show_compare=show_compare, report=report))
+        body.append(input_console_html(story=story, show_compare=show_compare, report=report, lang=lang))
 
     if report is None:
         body.append(
             '<div class="two-col">'
-            '<div class="card"><h2>为什么需要专业规则控制台？</h2>'
-            '<p class="sub" style="margin-bottom:6px">① <b>钱和时效绝不让大模型估算</b>：21.75 日薪折算、工龄分段、社平 3 倍封顶全由确定性代码计算；</p>'
-            '<p class="sub" style="margin-bottom:6px">② <b>每条依据回库核验原文</b>：拒绝“《劳动合同法》第 X 条”的幻觉引用，直接给出可展开核对的法条原文；</p>'
-            '<p class="sub" style="margin-bottom:0">③ <b>宁可追问、绝不乱答</b>：缺字段先问，超范围（工伤/社保）指路，问胜诉率当场拦截。</p>'
-            '<p style="margin:12px 0 0;font-size:13.5px">👈 <b>快速演示</b>：直接点击左侧「演示案例库」中的任意案例，即可同屏查看「普通大模型 vs 本系统」对比效果。</p>'
+            f'<div class="card"><h2>{esc(t(lang, "welcome_why_title"))}</h2>'
+            f'<p class="sub">① {esc(t(lang, "welcome_why_1"))}</p>'
+            f'<p class="sub">② {esc(t(lang, "welcome_why_2"))}</p>'
+            f'<p class="sub">③ {esc(t(lang, "welcome_why_3"))}</p>'
+            f'<p style="margin:10px 0 0;font-size:13px;color:var(--primary);font-weight:600">{esc(t(lang, "welcome_tip"))}</p>'
             "</div>"
         )
         cities = covered_cities()
-        city_rows = "、".join(
-            f'{esc(c["city"])}（社平 {c["avg_wage_monthly"]:,.0f} 元/月，核验 {esc(c["verified_at"])}）'
+        city_rows = " · ".join(
+            f'{esc(c["city"])} (¥{c["avg_wage_monthly"]:,.0f}/mo, {esc(c["verified_at"])})'
             for c in cities
         )
         body.append(
-            '<div class="card"><h2>城市口径与合规边界</h2>'
-            f'<p class="sub" style="margin-bottom:8px">{city_rows or "暂无城市口径"}</p>'
-            '<p class="sub" style="margin-bottom:6px">未收录城市时，受案范围、时效、解除合法性照样可判，但 3 倍封顶和最低工资<b>绝不跨城套用</b>，会明说「未覆盖」。</p>'
-            '<p class="sub" style="margin-bottom:0">本工具只覆盖内地劳动争议仲裁，不构成正式法律意见。符合条件可拨 12348 申请法律援助。</p>'
+            f'<div class="card"><h2>{esc(t(lang, "welcome_city_title"))}</h2>'
+            f'<p class="sub">{city_rows or "—"}</p>'
+            f'<p class="sub">{esc(t(lang, "welcome_city_note"))}</p>'
+            f'<p class="sub" style="margin-bottom:0">{esc(t(lang, "welcome_foot"))}</p>'
             "</div></div>"
         )
     elif report["status"] == "out_of_scope":
-        if show_compare and compare_data and not print_mode:
-            body.append(compare_html(report, compare_data))
-        body.append(f'<div class="card"><h1>这件事不归劳动仲裁管</h1><p class="sub">{esc(report["scope"]["reason"])}</p>')
-        body.append('<h2>该去哪、带什么</h2>')
-        body.append(f'<p>{esc(report.get("redirect") or "请补充更多细节")}</p>')
-        for h in report.get("hints", []):
-            body.append(f'<p>· {esc(h)}</p>')
-        body.append("</div>")
-        body.append(pending_html(report.get("pending") or [], story))
-    elif report["status"] == "blocked":
-        if show_compare and compare_data and not print_mode:
-            body.append(compare_html(report, compare_data))
-        body.append('<div class="card"><h1>现在还不能申请</h1>')
+        if show_compare and not print_mode:
+            body.append(compare_html(
+                report, compare_data, lang=lang, rule_ms=rule_ms,
+                async_pending=bool((async_compare or {}).get("pending")),
+                model_name=(cfg or {}).get("model", "deepseek-chat"),
+            ))
         body.append(
-            '<p class="sub">这不是算不出来，而是这道门现在就进不去——'
-            "所以我不给你一个看起来很像结论的金额。</p>"
+            f'<div class="card"><h1>{esc(t(lang, "out_scope_title"))}</h1>'
+            f'<p class="sub">{esc(report["scope"]["reason"])}</p>'
+            f'<h2>{esc(t(lang, "out_scope_where"))}</h2>'
+            f'<p>{esc(report.get("redirect") or "—")}</p>'
+        )
+        for h in report.get("hints", []):
+            body.append(f'<p style="margin:4px 0">· {esc(h)}</p>')
+        body.append("</div>")
+        body.append(pending_html(report.get("pending") or [], story, lang=lang))
+    elif report["status"] == "blocked":
+        if show_compare and not print_mode:
+            body.append(compare_html(
+                report, compare_data, lang=lang, rule_ms=rule_ms,
+                async_pending=bool((async_compare or {}).get("pending")),
+                model_name=(cfg or {}).get("model", "deepseek-chat"),
+            ))
+        body.append(
+            f'<div class="card"><h1>{esc(t(lang, "blocked_title"))}</h1>'
+            f'<p class="sub">{esc(t(lang, "blocked_sub"))}</p>'
         )
         for b in report.get("blockers") or []:
-            body.append(f'<div class="gate fail"><b>硬性障碍：</b>{esc(b)}</div>')
+            body.append(f'<div class="gate fail"><b>{esc(t(lang, "blocker_label"))}</b> {esc(b)}</div>')
         body.append("</div>")
-        body.append(gates_html(report.get("gates")))
-        if report.get("assumptions"):
-            body.append('<div class="card"><h2>说明</h2>')
-            for a in report["assumptions"]:
-                body.append(f"<p>· {esc(a)}</p>")
-            body.append("</div>")
+        body.append(gates_html(report.get("gates"), lang=lang))
     elif report["status"] == "need_more":
-        if show_compare and compare_data and not print_mode:
-            body.append(compare_html(report, compare_data))
-        body.append('<div class="card ask"><h1>还差几个信息才能算</h1><h2>请补充以下核心要素</h2>')
+        if show_compare and not print_mode:
+            body.append(compare_html(
+                report, compare_data, lang=lang, rule_ms=rule_ms,
+                async_pending=bool((async_compare or {}).get("pending")),
+                model_name=(cfg or {}).get("model", "deepseek-chat"),
+            ))
+        body.append(
+            f'<div class="card ask"><h1>{esc(t(lang, "need_more_title"))}</h1>'
+            f'<h2>{esc(t(lang, "need_more_sub"))}</h2>'
+        )
         for q in report["questions"]:
-            body.append(f"<p>· {esc(q)}</p>")
-        if report.get("relative"):
-            body.append("<p><b>系统自动推定的时间，请确认：</b></p>")
-            for x in report["relative"]:
-                body.append(f"<p>· {esc(x)}</p>")
+            body.append(f'<p style="margin:4px 0">· {esc(q)}</p>')
+        for x in report.get("relative") or []:
+            body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
         body.append("</div>")
-        body.append(gates_html(report.get("gates")))
-        body.append(map_html(report.get("fields") or {}, clickable=True))
-        body.append(pending_html(report.get("pending") or [], story))
+        body.append(map_html(report.get("fields") or {}, clickable=True, lang=lang))
+        body.append(gates_html(report.get("gates"), lang=lang))
+        body.append(pending_html(report.get("pending") or [], story, lang=lang))
     else:
+        worth = report.get("worth") or {}
+        cites = [c for it in report["items"] for c in it.get("cite_texts", [])]
+        verified_n = sum(1 for it in report["items"] if it["cite_ok"])
+        d_first = next((x for x in report["deadlines"] if x.get("applicable")), report["deadlines"][0])
+        dl_txt = t(lang, "expired") if d_first["expired"] else (
+            f'{d_first["days_left"]} {t(lang, "days_unit")}' if d_first["days_left"] is not None else "—"
+        )
+
+        # Tab bar
         if not print_mode:
             body.append(
-                '<div class="ws-tabs">'
-                '<a class="ws-tab" href="#sec-compare">🆚 AI 对比</a>'
-                '<a class="ws-tab" href="#sec-calc">💰 逐项金额与法条</a>'
-                '<a class="ws-tab" href="#sec-deadline">⏱ 仲裁时效与完整度</a>'
-                '<a class="ws-tab" href="#sec-evidence">📋 证据与抗辩预演</a>'
-                '<a class="ws-tab" href="#sec-worth">🎯 路径与值得性</a>'
-                '<a class="ws-tab" href="#sec-export">⬇ 下载与申请书</a>'
+                '<div class="kpi-grid">'
+                f'<div class="kpi-card kpi-1"><div class="kpi-lbl">{esc(t(lang, "kpi_total"))}</div>'
+                f'<div class="kpi-val">¥{_money(report["total"])}</div></div>'
+                f'<div class="kpi-card kpi-2"><div class="kpi-lbl">{esc(t(lang, "kpi_cites"))}</div>'
+                f'<div class="kpi-val">{verified_n}/{len(report["items"])} ({len(cites)})</div></div>'
+                f'<div class="kpi-card kpi-3"><div class="kpi-lbl">{esc(t(lang, "kpi_deadline"))}</div>'
+                f'<div class="kpi-val">{esc(dl_txt)}</div></div>'
+                f'<div class="kpi-card kpi-4"><div class="kpi-lbl">{esc(t(lang, "kpi_worth"))}</div>'
+                f'<div class="kpi-val">{esc(worth.get("score") or "—")}{esc(t(lang, "score_unit"))}</div></div>'
                 "</div>"
             )
-        if show_compare and compare_data and not print_mode:
-            body.append(compare_html(report, compare_data))
-
-        worth = report.get("worth") or {}
-        body.append('<div class="card">')
-        body.append(f'<h1>你能主张 <span class="total">{_money(report["total"])}</span> 元</h1>')
-        if worth.get("decision_label"):
             body.append(
-                f'<div class="verdict {esc(worth.get("decision"))}">'
-                f'{esc(worth["decision_label"])}　<span class="dim">值得性 {esc(worth.get("score"))}/100</span></div>'
+                '<div class="tab-bar">'
+                f'<button type="button" class="tab-btn active" data-tab="tab-overview">{esc(t(lang, "mod_overview"))}</button>'
+                f'<button type="button" class="tab-btn" data-tab="tab-statutes">{esc(t(lang, "mod_statutes"))}</button>'
+                f'<button type="button" class="tab-btn" data-tab="tab-defense">{esc(t(lang, "mod_defense"))}</button>'
+                f'<button type="button" class="tab-btn" data-tab="tab-filing">{esc(t(lang, "mod_filing"))}</button>'
+                "</div>"
             )
-        if report.get("scope", {}).get("hints"):
-            body.append('<p class="sub">' + "；".join(esc(h) for h in report["scope"]["hints"][:2]) + "</p>")
+
+        # TAB 1: Overview & AI Compare
+        body.append('<div class="tab-panel active" id="tab-overview">')
+        if show_compare and not print_mode:
+            body.append(compare_html(
+                report, compare_data, lang=lang, rule_ms=rule_ms,
+                async_pending=bool((async_compare or {}).get("pending")),
+                model_name=(cfg or {}).get("model", "deepseek-chat"),
+            ))
+        body.append('<div class="card">')
+        body.append(f'<h1>{esc(t(lang, "total_prefix"))}: <span class="total">¥{_money(report["total"])}</span></h1>')
+        if worth.get("decision_label"):
+            dlbl = tr_decision(lang, worth.get("decision") or "", worth["decision_label"])
+            body.append(
+                f'<div class="verdict {esc(worth.get("decision"))}">{esc(dlbl)} · '
+                f'{esc(worth.get("score"))}/100</div>'
+            )
         if story:
-            body.append(f'<blockquote><b>案情原文：</b>{esc(story)}</blockquote>')
+            body.append(f'<blockquote><b>{esc(t(lang, "story_label"))}</b> {esc(story)}</blockquote>')
+        body.append("</div>")
+        body.append(pending_html(report.get("pending") or [], story, lang=lang))
+        body.append(
+            f'<div class="card" id="sec-calc"><h2>{esc(t(lang, "items_title"))}</h2>'
+            f'<table><tr><th>{esc(t(lang, "col_item"))}</th>'
+            f'<th class="num">{esc(t(lang, "col_amount"))}</th>'
+            f'<th>{esc(t(lang, "col_formula"))}</th></tr>'
+        )
+        for it in report["items"]:
+            body.append(
+                f'<tr><td>{esc(tr_item(lang, it["name"]))}</td>'
+                f'<td class="num">{_money(it["amount"])}</td>'
+                f'<td>{esc(it["formula"])}</td></tr>'
+            )
+        body.append(f'<tr><th>{esc(t(lang, "col_total"))}</th><th class="num">{_money(report["total"])}</th><th></th></tr></table></div>')
         body.append("</div>")
 
-        body.append(pending_html(report.get("pending") or [], story))
-        body.append(gates_html(report.get("gates")))
-
-        body.append('<div class="card" id="sec-calc"><h2>一、逐项金额</h2><table><tr><th>项目</th><th class="num">金额（元）</th><th>算法</th></tr>')
+        # TAB 2: Statutes & Case Map
+        body.append('<div class="tab-panel" id="tab-statutes">')
+        body.append(map_html(report.get("fields") or {}, lang=lang))
+        body.append(f'<div class="card"><h2>{esc(t(lang, "laws_title"))}</h2>')
         for it in report["items"]:
-            body.append(f'<tr><td>{esc(it["name"])}</td><td class="num">{_money(it["amount"])}</td><td>{esc(it["formula"])}</td></tr>')
-        body.append(f'<tr><th>合计</th><th class="num">{_money(report["total"])}</th><th></th></tr></table></div>')
-
-        body.append('<div class="card"><h2>二、法律依据（可逐条核对）</h2>')
-        for it in report["items"]:
-            flag = '<span class="badge ok">引用已核验</span>' if it["cite_ok"] else '<span class="badge warn">引用异常</span>'
-            body.append(f'<p style="margin:10px 0 2px"><b>{esc(it["name"])}</b>{flag}<br><span class="sub" style="margin:0">{esc(it["basis"])}</span></p>')
+            flag = (
+                f'<span class="badge ok">{esc(t(lang, "cite_ok"))}</span>'
+                if it["cite_ok"] else f'<span class="badge warn">{esc(t(lang, "cite_warn"))}</span>'
+            )
+            body.append(
+                f'<p style="margin:10px 0 2px"><b>{esc(tr_item(lang, it["name"]))}</b>{flag}'
+                f'<br><span class="sub" style="margin:0">{esc(it["basis"])}</span></p>'
+            )
             for c in it.get("cite_texts", []):
-                body.append(f'<details><summary>{esc(c["cite"])} 原文</summary><blockquote>{esc(c["text"])}</blockquote></details>')
+                body.append(
+                    f'<details><summary>{esc(c["cite"])} · {esc(t(lang, "original_text"))}</summary>'
+                    f'<blockquote>{esc(c["text"])}</blockquote></details>'
+                )
         body.append("</div>")
-
-        body.append(map_html(report.get("fields") or {}))
-
         if report.get("reference_cases"):
-            body.append('<div class="card"><h2>类案参考</h2>'
-                        '<p class="sub">按案由与案情线索选取。请结合本人证据与案件差异阅读。</p>')
+            body.append(f'<div class="card"><h2>{esc(t(lang, "ref_title"))}</h2><p class="sub">{esc(t(lang, "ref_sub"))}</p>')
             for case in report["reference_cases"]:
                 body.append(f'<h3>{esc(case["title"])}</h3>')
                 for label, key in (("争议焦点", "focus"), ("处理结果", "result"),
                                    ("可比点", "compare"), ("区别", "distinguish")):
-                    body.append(f'<p style="margin:4px 0"><b>{label}</b>　{esc(case[key])}</p>')
+                    body.append(f'<p style="margin:3px 0"><b>{label}</b>　{esc(case[key])}</p>')
                 body.append(f'<p style="margin:4px 0 10px"><a href="{esc(case["url"])}" target="_blank" rel="noopener">{esc(case["source"])}</a></p>')
             body.append("</div>")
+        body.append("</div>")
 
-        body.append('<div class="card" id="sec-deadline"><h2>三、仲裁时效</h2><table><tr><th>请求</th><th>起算</th><th>截止</th><th class="num">剩余</th></tr>')
+        # TAB 3: Deadlines, Evidence & Defense Prep
+        body.append('<div class="tab-panel" id="tab-defense">')
+        body.append(
+            f'<div class="card" id="sec-deadline"><h2>{esc(t(lang, "deadlines_title"))}</h2>'
+            f'<table><tr><th>{esc(t(lang, "col_claim"))}</th><th>{esc(t(lang, "col_anchor"))}</th>'
+            f'<th>{esc(t(lang, "col_deadline"))}</th><th class="num">{esc(t(lang, "col_left"))}</th></tr>'
+        )
         for d in report["deadlines"]:
-            left = "—" if d["days_left"] is None else ("已过期" if d["expired"] else f'{d["days_left"]} 天')
+            left = "—" if d["days_left"] is None else (
+                t(lang, "expired") if d["expired"] else t(lang, "days_left", n=d["days_left"])
+            )
             body.append(f'<tr><td>{esc(d["label"])}</td><td>{esc(d["anchor"])}</td><td>{esc(d["deadline"])}</td><td class="num">{esc(left)}</td></tr>')
         body.append("</table></div>")
-
         if report.get("rehearsal"):
-            body.append('<div class="card"><h2>四、对方会怎么反驳你（提前演一遍）</h2>')
+            body.append(f'<div class="card"><h2>{esc(t(lang, "rehearsal_title"))}</h2>')
             for rd in report["rehearsal"]["rounds"]:
-                body.append(f'<p style="margin:12px 0 2px"><b>HR 可能说：</b>{esc(rd["hr_says"])}</p>')
-                body.append(f'<p style="margin:0"><span class="sub">为什么难缠：</span>{esc(rd["why"])}</p>')
-                body.append(f'<p style="margin:0"><span class="sub">你拿什么顶回去：</span>{esc(rd["counter"])}</p>')
-                body.append('<p class="sub" style="margin:2px 0 0">要准备：' + "、".join(esc(n) for n in rd["need"]) + "</p>")
+                body.append(f'<p style="margin:10px 0 2px"><b>{esc(t(lang, "hr_says"))}</b> {esc(rd["hr_says"])}</p>')
+                body.append(f'<p style="margin:0"><span class="sub">{esc(t(lang, "hr_why"))}</span> {esc(rd["why"])}</p>')
+                body.append(f'<p style="margin:0"><span class="sub">{esc(t(lang, "hr_counter"))}</span> {esc(rd["counter"])}</p>')
+                body.append(f'<p class="sub" style="margin:2px 0 0">{esc(t(lang, "hr_need"))} ' + "、".join(esc(n) for n in rd["need"]) + "</p>")
             body.append(f'<p class="sub">{esc(report["rehearsal"]["tip"])}</p></div>')
-            body.append(evidence_html(report.get("rehearsal")))
+            body.append(evidence_html(report.get("rehearsal"), lang=lang))
+        body.append("</div>")
 
-        body.append(materials_html(report.get("materials") or [], report.get("evidence_score")))
-        body.append(venue_html(report.get("venue") or []))
-        body.append(worth_html(report.get("worth"), report.get("one_final_note")))
-
+        # TAB 4: Filing Path, Worth & Export
+        body.append('<div class="tab-panel" id="tab-filing">')
+        body.append(gates_html(report.get("gates"), lang=lang))
+        body.append(worth_html(report.get("worth"), report.get("one_final_note"), lang=lang))
+        body.append(materials_html(report.get("materials") or [], report.get("evidence_score"), lang=lang))
+        body.append(venue_html(report.get("venue") or [], lang=lang))
         if report.get("assumptions"):
-            body.append('<div class="card ask"><h2>本单采用的假设（请确认）</h2>')
+            body.append(f'<div class="card ask"><h2>{esc(t(lang, "assumptions_title"))}</h2>')
             for a in report["assumptions"]:
-                body.append(f"<p>· {esc(a)}</p>")
+                body.append(f'<p style="margin:3px 0">· {esc(a)}</p>')
             body.append("</div>")
-
         q_story = urllib.parse.quote(story)
         body.append(
-            f'<div class="card noprint" id="sec-export"><h2>报告导出与仲裁申请书</h2>'
+            f'<div class="card noprint" id="sec-export"><h2>{esc(t(lang, "export_title"))}</h2>'
             f'<div class="export-bar">'
-            f'<a class="export-btn" href="/pdf?story={q_story}">⬇ 下载 PDF 报告</a>'
-            f'<a class="export-btn" href="/print?story={q_story}" target="_blank">🖨 网页版打印</a>'
-            f'<a class="export-btn" href="/report?story={q_story}">⬇ 下载 Markdown</a>'
-            f'<a class="export-btn" href="/application?story={q_story}">📄 下载仲裁申请书草稿</a>'
+            f'<a class="export-btn" href="/pdf?story={q_story}">{esc(t(lang, "dl_pdf"))}</a>'
+            f'<a class="export-btn" href="/print?story={q_story}" target="_blank">{esc(t(lang, "dl_print"))}</a>'
+            f'<a class="export-btn" href="/report?story={q_story}">{esc(t(lang, "dl_md"))}</a>'
+            f'<a class="export-btn" href="/application?story={q_story}">{esc(t(lang, "dl_app"))}</a>'
             f"</div></div>"
         )
-        body.append('<p class="foot">本单仅根据你提供的信息做初步测算，不构成法律意见，不能代替律师。正式申请前请核对工资流水、社保记录和劳动合同原件。</p>')
+        body.append("</div>")
+        body.append(f'<p class="foot">{esc(t(lang, "foot_note"))}</p>')
 
     if not print_mode:
         body.append("</main></div>")
 
-    return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="{esc(lang)}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>劳动仲裁维权助手 · 控制台</title><style>{CSS}</style></head><body>
+<title>{esc(t(lang, "page_title"))}</title><style>{CSS}</style></head><body>
 {''.join(body)}
-{'' if print_mode else CONSOLE_JS}
+{'' if print_mode else console_js(lang=lang, async_compare=async_compare)}
 </body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "arb/2.0"
+    server_version = "arb/2.1"
 
     def _send(self, code: int, body, ctype: str = "text/html; charset=utf-8", extra: dict | None = None):
         data = body if isinstance(body, (bytes, bytearray)) else body.encode("utf-8")
@@ -991,9 +1173,33 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _q(query: str) -> tuple[str, list[str]]:
-        """从查询串里取出 story 与已确认字段（confirm 可重复）。"""
         p = urllib.parse.parse_qs(query)
         return p.get("story", [""])[0], p.get("confirm", [])
+
+    def _run_with_compare(
+        self,
+        story: str,
+        confirmed: list[str],
+        show_compare: bool,
+        lang: str,
+        api_key: str = "",
+        base_url: str = "",
+        model: str = "",
+    ) -> tuple[dict, dict | None, int, dict | None]:
+        t0 = time.perf_counter()
+        r = analyze(story, mode="best_effort", confirmed=confirmed)
+        rule_ms = max(1, int(round((time.perf_counter() - t0) * 1000)))
+        if not show_compare:
+            return r, None, rule_ms, None
+
+        live_cfg = _resolve_live_cfg(api_key=api_key, base_url=base_url, model=model)
+        if live_cfg and not has_live_cache(story, api_key=api_key, base_url=base_url, model=model, lang=lang):
+            # 毫秒级先渲染页面，由前端 /api/compare 异步拉取大模型回答，避免卡住首屏
+            return r, None, rule_ms, {"pending": True, "story": story, "lang": lang}
+        cmp_data = compare_with_generic_ai(
+            story, r, api_key=api_key, base_url=base_url, model=model, lang=lang,
+        )
+        return r, cmp_data, rule_ms, None
 
     def do_GET(self):  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
@@ -1027,39 +1233,57 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         params = urllib.parse.parse_qs(q)
+        lang = "zh" if params.get("lang", ["en"])[0] == "zh" else "en"
         case_id = params.get("case", [""])[0]
         preset = get_demo_case(case_id) if case_id else None
         if preset:
-            story = preset["story"]
-            r = analyze(story, mode="best_effort")
-            cmp_data = compare_with_generic_ai(story, r)
-            self._send(200, render_page(r, story, compare_data=cmp_data, show_compare=True))
+            story = preset["story"] if lang == "zh" else preset.get("story_en", preset["story"])
+            r, cmp_data, rule_ms, async_cmp = self._run_with_compare(story, [], True, lang)
+            self._send(200, render_page(
+                r, story, compare_data=cmp_data, show_compare=True,
+                lang=lang, rule_ms=rule_ms, async_compare=async_cmp,
+            ))
             return
-        self._send(200, render_page())
+        self._send(200, render_page(lang=lang))
 
     def do_POST(self):  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length).decode("utf-8", "replace")
         p = urllib.parse.parse_qs(raw)
         story = p.get("story", [""])[0].strip()
         confirmed = p.get("confirm", [])
+        lang = "zh" if p.get("lang", ["en"])[0] == "zh" else "en"
         show_compare = p.get("compare", ["0"])[0] == "1"
         api_key = p.get("api_key", [""])[0]
         base_url = p.get("base_url", [""])[0]
         model = p.get("model", [""])[0]
 
+        if parsed.path == "/api/compare":
+            if not story:
+                self._send(400, json.dumps({"error": "empty story"}), "application/json; charset=utf-8")
+                return
+            r = analyze(story, mode="best_effort", confirmed=confirmed)
+            cmp_data = compare_with_generic_ai(
+                story, r, api_key=api_key, base_url=base_url, model=model, lang=lang,
+            )
+            self._send(200, json.dumps(cmp_data, ensure_ascii=False), "application/json; charset=utf-8")
+            return
+
         if not story:
-            self._send(400, render_page(error="还没输入内容", show_compare=show_compare))
+            self._send(400, render_page(error=t(lang, "empty_err"), show_compare=show_compare, lang=lang))
             return
         try:
-            r = analyze(story, mode="best_effort", confirmed=confirmed)
-            cmp_data = (
-                compare_with_generic_ai(story, r, api_key=api_key, base_url=base_url, model=model)
-                if show_compare else None
+            r, cmp_data, rule_ms, async_cmp = self._run_with_compare(
+                story, confirmed, show_compare, lang,
+                api_key=api_key, base_url=base_url, model=model,
             )
-            self._send(200, render_page(r, story, compare_data=cmp_data, show_compare=show_compare))
-        except Exception as e:  # 现场演示不能白屏
-            self._send(500, render_page(error=f"出错了：{e}", story=story, show_compare=show_compare))
+            self._send(200, render_page(
+                r, story, compare_data=cmp_data, show_compare=show_compare,
+                lang=lang, rule_ms=rule_ms, async_compare=async_cmp,
+            ))
+        except Exception as e:
+            self._send(500, render_page(error=f"Error: {e}", story=story, show_compare=show_compare, lang=lang))
 
     def log_message(self, fmt, *args):
         print(f"[web] {fmt % args}")
@@ -1067,11 +1291,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def main(port: int = 8765) -> None:
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"劳动仲裁维权助手已启动： http://127.0.0.1:{port}  （Ctrl+C 退出）")
+    print(f"Labor Arbitration Console started: http://127.0.0.1:{port}  (Ctrl+C to stop)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        print("\n已停止")
+        print("\nStopped")
 
 
 if __name__ == "__main__":

@@ -340,6 +340,42 @@ def extract(story: str, today: date | None = None) -> dict:
             fields["unpaid_wages"] = float(m.group(1))
             ev["unpaid_wages"] = m.group(0)
 
+    # ---------- 英文输入兜底抽取（仅在中文规则未命中时生效，不影响中文评测） ----------
+    if fields["monthly_wage"] is None:
+        m = re.search(r"(?i)(?:monthly\s+(?:salary|wage|pay)|salary|wage)\s*(?:is|was|of|:|=)?\s*(?:rmb|cny|¥)?\s*(\d{3,6})", story)
+        if m:
+            fields["monthly_wage"] = float(m.group(1))
+            ev["monthly_wage"] = m.group(0)
+    if fields["social_avg_wage"] is None:
+        m = re.search(r"(?i)(?:social|local)\s+average\s+wage\s*(?:is|of|:|=)?\s*(?:rmb|cny|¥)?\s*(\d{4,6})", story)
+        if m:
+            fields["social_avg_wage"] = float(m.group(1))
+            ev["social_avg_wage"] = m.group(0)
+    if fields["termination"] is None:
+        if re.search(r"(?i)\b(?:verbally\s+fired|fired|wrongfully\s+terminated|illegal\s+dismissal|dismissed|laid\s+off|terminated\s+for\s+restructuring)\b", story):
+            fields["termination"] = "illegal_dismissal"
+        elif re.search(r"(?i)\bmutual\s+agreement\b", story):
+            fields["termination"] = "mutual_agreement"
+        elif re.search(r"(?i)\b(?:resigned|i\s+quit)\b", story):
+            fields["termination"] = "employee_resign"
+        elif re.search(r"(?i)\b(?:contract\s+expired|lawful\s+termination)\b", story):
+            fields["termination"] = "legal_termination"
+    if fields["has_written_contract"] is None:
+        if re.search(r"(?i)\b(?:no|without|never\s+signed)\s+(?:a\s+)?(?:written\s+)?(?:labor\s+)?contract\b", story):
+            fields["has_written_contract"] = False
+        elif re.search(r"(?i)\bsigned\s+(?:a\s+)?(?:written\s+)?(?:labor\s+)?contract\b", story):
+            fields["has_written_contract"] = True
+    if fields["unused_annual_leave_days"] is None:
+        m = re.search(r"(?i)(\d+)\s*(?:days?\s+of\s+)?unused\s+annual\s+leave|(\d+)\s*unused\s+annual\s+leave\s+days?", story)
+        if m:
+            fields["unused_annual_leave_days"] = int(m.group(1) or m.group(2))
+            ev["unused_annual_leave_days"] = m.group(0)
+    if not fields["unpaid_wages"]:
+        m = re.search(r"(?i)unpaid\s+(?:salary|wages?)\s*(?:of|:)?\s*(?:rmb|cny|¥)?\s*(\d{3,6})", story)
+        if m:
+            fields["unpaid_wages"] = float(m.group(1))
+            ev["unpaid_wages"] = m.group(0)
+
     unresolved = [k for k in ("hire_date", "end_date", "monthly_wage", "termination") if fields[k] is None]
     if any(d["dt"] is None for d in dates):
         unresolved.append("no_year_date")

@@ -38,8 +38,12 @@ def fetch(url, data=None):
 def test_index_page(server):
     code, html, _ = fetch(server + "/")
     assert code == 200
-    assert "劳动仲裁维权助手" in html
+    assert "Arbitration Console" in html
     assert '<form method="post" action="/analyze">' in html
+
+    code_zh, html_zh, _ = fetch(server + "/?lang=zh")
+    assert code_zh == 200
+    assert "劳动仲裁维权助手" in html_zh
 
 
 def test_index_has_chips(server):
@@ -57,21 +61,35 @@ def test_print_page(server):
 def test_post_analyze_ok(server):
     code, html, _ = fetch(server + "/analyze", {"story": STORY})
     assert code == 200
-    assert "你能主张" in html
-    assert "引用已核验" in html
-    assert "仲裁时效" in html
+    assert "Estimated Claimable Amount" in html
+    assert "Citation Verified" in html
+    assert "Statutory Arbitration Deadlines" in html
+
+    code_zh, html_zh, _ = fetch(server + "/analyze", {"story": STORY, "lang": "zh"})
+    assert code_zh == 200
+    assert "你能主张" in html_zh
+    assert "引用已核验" in html_zh
+    assert "仲裁时效" in html_zh
 
 
 def test_post_need_more(server):
     code, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了"})
     assert code == 200
-    assert "还差几个信息" in html or "请补充" in html
+    assert "More Information Required" in html
+
+    code_zh, html_zh, _ = fetch(server + "/analyze", {"story": "公司把我辞了", "lang": "zh"})
+    assert code_zh == 200
+    assert "还差几个信息" in html_zh or "请补充" in html_zh
 
 
 def test_post_out_of_scope(server):
     code, html, _ = fetch(server + "/analyze", {"story": "工地摔伤了，算工伤吗"})
     assert code == 200
-    assert "不归劳动仲裁管" in html
+    assert "Outside Labor Arbitration Jurisdiction" in html
+
+    code_zh, html_zh, _ = fetch(server + "/analyze", {"story": "工地摔伤了，算工伤吗", "lang": "zh"})
+    assert code_zh == 200
+    assert "不归劳动仲裁管" in html_zh
 
 
 def test_application_download(server):
@@ -104,22 +122,27 @@ def test_render_page_states():
 
 def test_ok_page_has_map_and_evidence(server):
     _, html, _ = fetch(server + "/analyze", {"story": STORY})
-    assert "案件完整度" in html
-    assert "五、证据清单" in html
-    assert "单位举证" in html
+    assert "Case Completeness Map" in html
+    assert "Burden of Proof Checklist" in html
+    assert "Employer Burden" in html
     assert 'class="cell ok"' in html
+
+    _, html_zh, _ = fetch(server + "/analyze", {"story": STORY, "lang": "zh"})
+    assert "案件完整度" in html_zh
+    assert "五、证据清单" in html_zh
+    assert "单位举证" in html_zh
 
 
 def test_need_more_page_has_clickable_map_and_form(server):
     _, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了，我很生气"})
-    assert "案件完整度" in html
+    assert "Case Completeness Map" in html
     assert 'class="chip fill"' in html, "缺字段时应给出可点的补录按钮"
     assert 'name="story"' in html, "补录页要能继续编辑提交"
     assert 'class="cell missing"' in html
 
 
 def test_fill_button_text_is_template(server):
-    _, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了"})
+    _, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了", "lang": "zh"})
     assert "补：入职日期" in html
     assert "data-text=" in html
 
