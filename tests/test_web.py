@@ -167,7 +167,8 @@ def test_platform_dispute_explains_both_factors_before_estimating(server):
     story = "我是2024年1月1日开始在平台送外卖，2025年1月1日离开，月报酬6000。公司安排排班和扣罚，但我可以自己决定接单。签的是合作协议，没签劳动合同。我想确认劳动关系和二倍工资。"
     _, html, _ = fetch(server + "/analyze", {"story": story, "lang": "zh"})
     assert "判断劳动关系和责任主体" in html and "二倍工资的前置条件" in html
-    assert "自主接单" in html and "公司安排班次" in html
+    assert "已识别的工作自主权线索" in html and "已识别的用工管理线索" in html
+    assert "自己决定接单" in html and "加班争议" not in html
     assert "最高法指导性案例 237–240 号" in html
     assert "合计可主张" not in html
 

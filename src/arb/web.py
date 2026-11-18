@@ -1530,9 +1530,11 @@ def prerequisite_sections(review: dict, lang: str) -> list[str]:
     if employment:
         rows.append(f'<h2>{text("判断劳动关系和责任主体", "Check the relationship and responsible parties")}</h2>')
         if employment["management"]:
-            rows.append(f'<p>{text("口述里已有公司安排班次、考核、定价或限制接单等线索，可用规则原文和实际记录核对控制程度。", "Your account describes controls such as schedules, penalties, pricing or orders. Check the actual rules and records.")}</p>')
+            terms = "、".join(esc(value) for value in employment["management"])
+            rows.append(f'<p>{text("已识别的用工管理线索", "Reported signs of management")} <strong>{terms}</strong></p>')
         if employment["autonomy"]:
-            rows.append(f'<p>{text("口述里也有自主接单、决定时间、直接收款或协商分成等线索。核对这些决定权能否实际行使。", "Your account also suggests freedom to choose orders, hours, payment or revenue-sharing. Check how much discretion you exercised in practice.")}</p>')
+            terms = "、".join(esc(value) for value in employment["autonomy"])
+            rows.append(f'<p>{text("已识别的工作自主权线索", "Reported signs of autonomy")} <strong>{terms}</strong></p>')
         rows.append(f'<p>{text("公司持续决定任务、工时和报酬时，可带材料向仲裁机构核对劳动关系。工作与定价主要由自己决定时，也可按合作协议核对结算和民事途径。", "If an enterprise consistently controls work, time and pay, ask the arbitration office about employment status. If you largely control the work or rates, check payment and civil options under the agreement.")}</p>')
         if employment["multiple"]:
             rows.append(f'<p>{text("签约、管理、支付或参保主体不同时，分别记录公司名称及对应凭据。挂靠、违法转包的用工主体责任可单独核对。", "Record the party responsible for contracting, management, payment and insurance. Check responsibility separately where there is affiliation or unlawful subcontracting.")}</p>')
@@ -1680,7 +1682,10 @@ def issue_breakdown_panel(report: dict, lang: str) -> str:
     if report.get("redirect") and review["administrative"] != "工伤" and not review["social_loss"]:
         _, redirect, _ = tr_scope_out(lang, report)
         out.append(f'<h2>{label("其他办理事项", "Other procedures")}</h2><p>{esc(redirect)}</p>')
-    extras = [cause for cause in report["scope"]["causes"] if cause not in ("unpaid_wage", "illegal_dismissal", "severance", "mutual_agreement") and cause in CLAIM_STEPS]
+    covered_causes = {"unpaid_wage", "illegal_dismissal", "severance", "mutual_agreement"}
+    if review["contract"]:
+        covered_causes.add("double_wage")
+    extras = [cause for cause in report["scope"]["causes"] if cause not in covered_causes and cause in CLAIM_STEPS]
     for cause in extras:
         out.append(f'<p>{esc(CLAIM_STEPS[cause][int(lang != "zh")])}</p>')
     out.append("</section>")
