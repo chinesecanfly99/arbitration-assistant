@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import llm
 from .application import render_application, render_notes
-from .chips import groups
+from .chips import BY_TERM, groups
 from .cli import render_markdown
 from .compare import (
     DEMO_CASES,
@@ -31,6 +31,7 @@ from .compare import (
 from .evidence import rows as evidence_rows, summary as evidence_summary
 from .i18n import (
     BURDEN_EN,
+    case_prompt,
     t,
     tr_basis,
     tr_chip,
@@ -58,9 +59,9 @@ from .i18n import (
     tr_worth_dim,
     tr_worth_level,
 )
-from .map import completeness, summary_line
+from .map import FIELD_LABELS, completeness, summary_line
 from .pdf import render_pdf
-from .pipeline import analyze, covered_cities
+from .pipeline import QUESTIONS, analyze, covered_cities
 
 CSS = """
 *{box-sizing:border-box}
@@ -154,6 +155,14 @@ textarea:focus{outline:none;background:#fff;border-color:var(--primary);box-shad
 .switch{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:pointer;user-select:none}
 .switch input{width:15px;height:15px;accent-color:var(--primary);cursor:pointer}
 .voice-tip{font-size:12px;color:var(--muted);margin-top:5px}
+.voice-language{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+.voice-language select{font:inherit;padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:var(--text)}
+.input-review{margin:10px 0;padding:12px;background:#fff;border:1px solid #bfdbfe;border-radius:8px}
+.input-review p{margin:3px 0 8px}
+.input-review p:empty{display:none}
+.input-review label{display:block;font-size:13px;font-weight:600;margin:8px 0 4px}
+.input-review .btn-tool{margin-top:7px}
+.input-review .btn-tool:disabled{opacity:.55;cursor:default}
 
 /* Drawers */
 .drawer{margin-top:10px;padding:12px 14px;border-radius:8px;background:#fafaf9;border:1px solid var(--border);display:none}
@@ -163,10 +172,10 @@ textarea:focus{outline:none;background:#fff;border-color:var(--primary);box-shad
 .chips{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 0}
 .chip{border:1px solid #d1d5db;background:#fff;color:#1f2937;border-radius:6px;padding:5px 10px;
       font-size:12.5px;width:auto;margin:0;cursor:pointer}
-.chip:hover{border-color:var(--primary);background:#eff6ff;color:var(--primary)}
+.chip:hover,.chip[aria-pressed="true"]{border-color:var(--primary);background:#eff6ff;color:var(--primary)}
 .groupname{font-size:12px;font-weight:600;color:#4b5563;margin:10px 0 2px}
-#explain{margin-top:10px;font-size:13px;color:#374151;background:#fff;border-left:3px solid var(--primary);
-         padding:8px 12px;border-radius:0 6px 6px 0;display:none}
+.guide-more{margin-top:10px}
+.guide-more summary{font-size:13px;color:var(--primary);cursor:pointer}
 
 /* KPI Strip — "One Bright Element" (Deep Jade Hero + Clean Crisp Peers) */
 .kpi-grid{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px;margin:14px 0}
@@ -268,6 +277,10 @@ summary{cursor:pointer;color:var(--primary);font-size:13px;font-weight:500}
   .kpi-grid{grid-template-columns:1fr 1fr}
   .compare-wrap,.two-col,.api-grid,.grid{grid-template-columns:1fr}
 }
+@media (max-width:600px){
+  .console-card textarea,.voice-language select{font-size:16px}
+  .console-card .btn-tool,.console-card .chip,.voice-language select{min-height:44px}
+}
 @media print{
   .sidebar,.topbar,.accent-bar,.console-card,.tab-bar,.kpi-grid,.compare-wrap,.chips,.noprint,form,button{display:none!important}
   .tab-panel{display:block!important}
@@ -294,12 +307,10 @@ def _js_str(s: str) -> str:
 
 def console_js(lang: str, async_compare: dict | None = None) -> str:
     async_cfg = json.dumps(async_compare or {}, ensure_ascii=False)
-    voice_lang = "zh-CN" if lang == "zh" else "en-US"
-    v_listen = _js_str(t(lang, "voice_listening"))
-    v_done = _js_str(t(lang, "voice_done"))
-    v_unsup = _js_str(t(lang, "voice_unsupported"))
-    v_btn_idle = _js_str(t(lang, "voice_btn"))
-    v_btn_stop = _js_str(t(lang, "voice_stop"))
+    voice_labels = json.dumps({key: t(lang, f"voice_{key}") for key in (
+        "btn", "stop", "listening", "done", "relative_date", "unsupported", "no_speech", "not_allowed", "failed",
+    )}, ensure_ascii=False)
+    story_added = _js_str(t(lang, "story_added"))
     v_verified = _js_str(t(lang, "cmp_verified"))
     v_unverified = _js_str(t(lang, "cmp_unverified"))
     v_audit_lbl = _js_str(t(lang, "cmp_cite_audit"))
@@ -310,6 +321,18 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
   var storyBox = document.getElementById('story');
   var form = storyBox ? storyBox.form : document.querySelector('form[action="/analyze"]');
   var langInput = document.getElementById('langInput');
+  var storyFeedback = document.getElementById('storyFeedback');
+
+  function appendStory(text) {{
+    var original = storyBox.value;
+    storyBox.value = original + (original && !original.endsWith('\\n') ? '\\n' : '') + text;
+    storyBox.setSelectionRange(storyBox.value.length, storyBox.value.length);
+    storyBox.scrollTop = storyBox.scrollHeight;
+    storyFeedback.textContent = {story_added};
+    storyBox.scrollIntoView({{block: 'nearest'}});
+  }}
+
+  storyBox.addEventListener('input', function () {{ storyFeedback.textContent = ''; }});
 
   function activateTab(tabId) {{
     document.querySelectorAll('.tab-btn').forEach(function (b) {{
@@ -342,7 +365,7 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     }}
 
     // 3. Language switch
-    var lbtn = e.target.closest('[data-lang]');
+    var lbtn = e.target.closest('.lang-sw button[data-lang]');
     if (lbtn) {{
       var newLang = lbtn.dataset.lang;
       if (langInput) langInput.value = newLang;
@@ -363,99 +386,179 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
       return;
     }}
 
-    // 4. Missing-field fill chip
-    var fill = e.target.closest('.chip.fill');
-    if (fill && storyBox) {{
-      var add = fill.dataset.text || '';
-      var val = storyBox.value;
-      var sep = (!val || /[\\s，。；;,、]$/.test(val)) ? '' : '；';
-      storyBox.value = val + sep + add;
-      storyBox.focus();
-      return;
-    }}
+  }});
 
-    // 5. Guided term chip
-    var chip = e.target.closest('.chip');
-    if (chip && storyBox) {{
-      var term = chip.dataset.term || '';
-      if (!term) return;
-      var val2 = storyBox.value;
-      var sep = (val2 && !/[\\s，。,;；]$/.test(val2)) ? (chip.dataset.lang === 'zh' ? '，' : ', ') : '';
-      var end = chip.dataset.lang === 'zh' ? '。' : '. ';
-      storyBox.value = val2 + sep + term + end;
-      storyBox.focus();
-      var ex = document.getElementById('explain');
-      if (ex) {{
-        ex.style.display = 'block';
-        ex.innerHTML = '<b>' + term + '</b><br>' + (chip.dataset.plain || '') +
-                       (chip.dataset.when ? '<br><span style="color:#5b6472">' + chip.dataset.when + '</span>' : '');
+  // Facts supplied here are added to the draft only when the user chooses Add.
+  var guide = document.getElementById('chipsDrawer');
+  var guidePrompt = document.getElementById('guidePrompt');
+  var guideAnswer = document.getElementById('guideAnswer');
+  var guideAdd = document.getElementById('guideAdd');
+  var guideExample = document.getElementById('guideExample');
+  var guideDrafts = new Map();
+  var selectedChip = null;
+
+  guide.addEventListener('click', function (e) {{
+    var chip = e.target.closest('button[data-guide-question]');
+    if (!chip) return;
+    if (chip !== selectedChip) {{
+      if (selectedChip) {{
+        guideDrafts.set(selectedChip, guideAnswer.value);
+        selectedChip.setAttribute('aria-pressed', 'false');
       }}
+      selectedChip = chip;
+      chip.setAttribute('aria-pressed', 'true');
+      document.getElementById('guideTopic').textContent = chip.textContent;
+      document.getElementById('guideQuestion').textContent = chip.dataset.guideQuestion;
+      document.getElementById('guidePlain').textContent = chip.dataset.plain;
+      guideExample.querySelector('span').textContent = chip.dataset.example;
+      guideExample.hidden = !chip.dataset.example;
+      guideAnswer.value = guideDrafts.get(chip) || '';
+      guideAdd.disabled = !guideAnswer.value.trim();
     }}
+    guidePrompt.hidden = false;
+    guidePrompt.focus({{preventScroll: true}});
+    guidePrompt.scrollIntoView({{block: 'nearest'}});
+  }});
+  guideAnswer.addEventListener('input', function () {{ guideAdd.disabled = !guideAnswer.value.trim(); }});
+  guideAdd.addEventListener('click', function () {{
+    var answer = guideAnswer.value.trim();
+    if (!answer) return;
+    guideAnswer.value = '';
+    guideDrafts.delete(selectedChip);
+    guideAdd.disabled = true;
+    appendStory(answer);
   }});
 
   // Drawers
   function bindToggle(btnId, drawerId) {{
     var btn = document.getElementById(btnId);
     var dr = document.getElementById(drawerId);
-    if (btn && dr) btn.addEventListener('click', function () {{ dr.classList.toggle('open'); }});
+    if (btn && dr) btn.addEventListener('click', function () {{
+      btn.setAttribute('aria-expanded', String(dr.classList.toggle('open')));
+    }});
   }}
   bindToggle('toggleGuideBtn', 'chipsDrawer');
   bindToggle('toggleApiBtn', 'apiDrawer');
+  var continueGuide = document.getElementById('continueGuide');
+  if (continueGuide) continueGuide.addEventListener('click', function () {{
+    guide.classList.add('open');
+    document.getElementById('toggleGuideBtn').setAttribute('aria-expanded', 'true');
+  }});
 
   var clearBtn = document.getElementById('clearStoryBtn');
   if (clearBtn && storyBox) {{
-    clearBtn.addEventListener('click', function () {{ storyBox.value = ''; storyBox.focus(); }});
+    clearBtn.addEventListener('click', function () {{
+      storyBox.value = '';
+      storyFeedback.textContent = '';
+      storyBox.focus();
+    }});
   }}
 
   // Web Speech API voice input
   var voiceBtn = document.getElementById('voiceBtn');
   var voiceTip = document.getElementById('voiceTip');
+  var voiceLang = document.getElementById('voiceLanguage');
+  var voiceReview = document.getElementById('voiceReview');
+  var voiceText = document.getElementById('voiceText');
+  var voiceAdd = document.getElementById('voiceAdd');
+  var voiceDiscard = document.getElementById('voiceDiscard');
+  var voiceLabels = {voice_labels};
   var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var rec = null, listening = false, baseText = '';
-  if (voiceBtn) {{
-    if (!SpeechRec) {{
-      voiceBtn.addEventListener('click', function () {{
-        if (voiceTip) voiceTip.textContent = {v_unsup};
-      }});
-    }} else {{
-      voiceBtn.addEventListener('click', function () {{
-        if (listening && rec) {{ rec.stop(); return; }}
-        rec = new SpeechRec();
-        rec.lang = '{voice_lang}';
-        rec.continuous = true;
-        rec.interimResults = true;
-        baseText = storyBox ? storyBox.value : '';
-        if (baseText && !/[\\s，。；;,]$/.test(baseText)) baseText += ' ';
-        rec.onstart = function () {{
-          listening = true;
-          voiceBtn.classList.add('recording');
-          voiceBtn.textContent = {v_btn_stop};
-          if (voiceTip) voiceTip.textContent = {v_listen};
-        }};
-        rec.onresult = function (ev) {{
-          var fin = '', intr = '';
-          for (var i = 0; i < ev.results.length; i++) {{
-            var s = ev.results[i][0].transcript;
-            if (ev.results[i].isFinal) fin += s; else intr += s;
-          }}
-          if (storyBox) storyBox.value = baseText + fin + intr;
-        }};
-        rec.onerror = function (ev) {{
-          listening = false;
-          voiceBtn.classList.remove('recording');
-          voiceBtn.textContent = {v_btn_idle};
-          if (voiceTip) voiceTip.textContent = 'Mic error: ' + (ev.error || 'permission denied');
-        }};
-        rec.onend = function () {{
-          listening = false;
-          voiceBtn.classList.remove('recording');
-          voiceBtn.textContent = {v_btn_idle};
-          if (voiceTip) voiceTip.textContent = {v_done};
-        }};
-        rec.start();
-      }});
-    }}
+  var rec = null;
+  if (/^zh(?:-|$)/i.test(navigator.language)) voiceLang.value = 'zh-CN';
+  try {{
+    var preferredVoice = sessionStorage.getItem('arb_voice_language');
+    if (preferredVoice === 'zh-CN' || preferredVoice === 'en-US') voiceLang.value = preferredVoice;
+  }} catch (err) {{ /* Dictation also works without browser storage. */ }}
+  voiceLang.addEventListener('change', function () {{
+    try {{ sessionStorage.setItem('arb_voice_language', voiceLang.value); }} catch (err) {{}}
+  }});
+
+  function updateVoicePreview() {{
+    voiceReview.hidden = !voiceText.value.trim();
+    voiceText.readOnly = !!rec;
+    voiceAdd.disabled = !!rec || voiceReview.hidden;
+    voiceDiscard.disabled = !!rec;
   }}
+
+  function discardTranscript() {{
+    voiceText.value = '';
+    voiceTip.textContent = '';
+    updateVoicePreview();
+  }}
+
+  function transcriptStatus() {{
+    var relativeDate = /去年|前年|今年|明年|上个?月|上周|前几天|昨天|前天|今天|\\b(?:yesterday|today|last\\s+(?:week|month|year|january|february|march|april|may|june|july|august|september|october|november|december))\\b/i;
+    return voiceLabels.done + (relativeDate.test(voiceText.value) ? ' ' + voiceLabels.relative_date : '');
+  }}
+
+  voiceText.addEventListener('input', function () {{
+    voiceAdd.disabled = !voiceText.value.trim();
+    voiceTip.textContent = voiceAdd.disabled ? '' : transcriptStatus();
+  }});
+  voiceAdd.addEventListener('click', function () {{
+    var text = voiceText.value.trim();
+    if (!text || rec) return;
+    appendStory(text);
+    discardTranscript();
+  }});
+  voiceDiscard.addEventListener('click', discardTranscript);
+
+  voiceBtn.addEventListener('click', function () {{
+    if (!SpeechRec) {{ voiceTip.textContent = voiceLabels.unsupported; return; }}
+    if (rec) {{ rec.stop(); return; }}
+
+    var current = new SpeechRec();
+    var previous = voiceText.value.trim();
+    var heard = '';
+    var error = '';
+    current.lang = voiceLang.value;
+    current.continuous = false;
+    current.interimResults = true;
+
+    function joinTranscript(text) {{
+      return [previous, text].filter(Boolean).join('\\n');
+    }}
+
+    function finish() {{
+      if (rec !== current) return;
+      rec = null;
+      voiceText.value = joinTranscript(heard);
+      voiceLang.disabled = false;
+      voiceBtn.classList.remove('recording');
+      voiceBtn.querySelector('span').textContent = voiceLabels.btn;
+      voiceTip.textContent = error || (heard ? transcriptStatus() : voiceLabels.no_speech);
+      updateVoicePreview();
+    }}
+
+    current.onresult = function (ev) {{
+      if (rec !== current) return;
+      var results = Array.from(ev.results);
+      heard = results.filter(function (result) {{ return result.isFinal; }})
+        .map(function (result) {{ return result[0].transcript.trim(); }}).join(' ').trim();
+      var preview = results.map(function (result) {{ return result[0].transcript.trim(); }}).join(' ').trim();
+      voiceText.value = joinTranscript(preview);
+      updateVoicePreview();
+    }};
+    current.onerror = function (ev) {{
+      var messages = {{'no-speech': 'no_speech', 'not-allowed': 'not_allowed', 'service-not-allowed': 'not_allowed',
+                       'audio-capture': 'not_allowed', 'language-not-supported': 'unsupported'}};
+      error = voiceLabels[messages[ev.error]] || voiceLabels.failed;
+      finish();
+    }};
+    current.onend = finish;
+
+    rec = current;
+    voiceLang.disabled = true;
+    voiceBtn.classList.add('recording');
+    voiceBtn.querySelector('span').textContent = voiceLabels.stop;
+    voiceTip.textContent = voiceLabels.listening;
+    updateVoicePreview();
+    try {{ current.start(); }} catch (err) {{
+      error = voiceLabels.failed;
+      finish();
+    }}
+  }});
 
   // Persist optional API overrides in sessionStorage
   ['apiKeyInput', 'apiBaseInput', 'apiModelInput'].forEach(function (id) {{
@@ -527,22 +630,51 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
 """
 
 
-def chips_html(lang: str = "zh") -> str:
+QUICK_TOPICS = ("违法解除劳动合同", "拖欠工资", "未签书面劳动合同二倍工资")
+
+
+def guide_chip(label: str, question: str, example: str, plain: str = "", css: str = "chip") -> str:
+    return (
+        f'<button type="button" class="{css}" aria-controls="guidePrompt" aria-pressed="false" '
+        f'data-guide-question="{esc(question)}" data-plain="{esc(plain)}" data-example="{esc(example)}">'
+        f'{esc(label)}</button>'
+    )
+
+
+def topic_chip(raw_c: dict, lang: str) -> str:
+    c = tr_chip(lang, raw_c)
+    question, example = case_prompt(lang, raw_c["term"])
+    return guide_chip(c["term"], question, example, c["plain"])
+
+
+def chips_html(lang: str = "zh", exclude: tuple[str, ...] = ()) -> str:
     out = []
     for g, items in groups().items():
         out.append(f'<p class="groupname">{esc(tr_chip_group(lang, g))}</p><div class="chips">')
         for raw_c in items:
-            c = tr_chip(lang, raw_c)
-            out.append(
-                f'<button type="button" class="chip" data-lang="{esc(lang)}" data-term="{esc(c["term"])}" '
-                f'data-plain="{esc(c["plain"])}" data-when="{esc(c["when"])}" data-why="{esc(c["why"])}">'
-                f'{esc(c["term"])}</button>'
-            )
+            if raw_c["term"] not in exclude:
+                out.append(topic_chip(raw_c, lang))
         out.append("</div>")
     return "".join(out)
 
 
-def map_html(fields: dict, clickable: bool = False, lang: str = "zh") -> str:
+def followup_chips(report: dict | None, lang: str) -> list[str]:
+    if not report or report["status"] not in ("ok", "need_more"):
+        return []
+    missing = report.get("missing", [])
+    sources = report.get("sources", {})
+    suggestions = []
+    for key, label, hint in FIELD_LABELS:
+        if key not in QUESTIONS or (key not in missing and sources.get(key) != "assumed"):
+            continue
+        name = tr_field_label(lang, label)
+        prefix = "补：" if lang == "zh" else "+ "
+        example = tr_fill_text(lang, label, hint).removeprefix("例如：")
+        suggestions.append(guide_chip(prefix + name, tr_question(lang, QUESTIONS[key]), example, css="chip fill"))
+    return suggestions[:2]
+
+
+def map_html(fields: dict, lang: str = "zh") -> str:
     """9 格完整度地图：已填的绿、必填缺失的红、可选的灰。"""
     c = completeness(fields)
     out = [f'<div class="card" id="sec-map"><h2>{esc(t(lang, "map_title"))} <span class="pct">{int(c["score"] * 100)}%</span></h2>']
@@ -559,18 +691,7 @@ def map_html(fields: dict, clickable: bool = False, lang: str = "zh") -> str:
             f'<div class="{cls}"><span class="k">{esc(tr_field_label(lang, r["label"]))}</span>'
             f'<span class="v">{val}</span><span class="m">{mark}</span></div>'
         )
-    out.append("</div>")
-    if clickable:
-        miss = [r for r in c["rows"] if r["status"] == "missing"]
-        if miss:
-            out.append(f'<p class="sub" style="margin:12px 0 6px">{esc(t(lang, "map_fill_tip"))}</p><div class="chips">')
-            for r in miss:
-                lbl = r["label"] if lang == "zh" else tr_field_label("en", r["label"])
-                prefix = "补：" if lang == "zh" else "+ "
-                tpl = tr_fill_text(lang, r["label"], r["hint"])
-                out.append(f'<button type="button" class="chip fill" data-text="{esc(tpl)}">{prefix}{esc(lbl)}</button>')
-            out.append("</div>")
-    out.append("</div>")
+    out.append("</div></div>")
     return "".join(out)
 
 
@@ -893,6 +1014,13 @@ def compare_html(
 def input_console_html(story: str = "", show_compare: bool = True, report: dict | None = None, lang: str = "en") -> str:
     checked = "checked" if show_compare else ""
     btn_text = t(lang, "recalc_btn") if report is not None else t(lang, "submit_btn")
+    zh_selected = " selected" if lang == "zh" else ""
+    en_selected = " selected" if lang != "zh" else ""
+    suggested = followup_chips(report, lang)
+    drawer_open = " open" if suggested else ""
+    guide_intro = "guide_followup" if suggested else "guide_intro"
+    excluded = () if suggested else QUICK_TOPICS
+    quick_chips = suggested or [topic_chip(BY_TERM[term], lang) for term in QUICK_TOPICS]
     cfg = llm.config()
     api_note = (
         t(lang, "api_connected_note", model=cfg["model"], base=cfg["base"])
@@ -904,16 +1032,34 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         f'<button type="button" class="clear-link" id="clearStoryBtn">{esc(t(lang, "clear_btn"))}</button></div>',
         '<form method="post" action="/analyze">',
         f'<input type="hidden" name="lang" id="langInput" value="{esc(lang)}">',
-        f'<textarea name="story" id="story" placeholder="{esc(t(lang, "placeholder"))}">{esc(story)}</textarea>',
+        f'<textarea name="story" id="story" aria-describedby="storyFeedback" '
+        f'placeholder="{esc(t(lang, "placeholder"))}">{esc(story)}</textarea>',
+        '<div class="voice-tip" id="storyFeedback" role="status"></div>',
         '<div class="toolbar"><div class="tool-left">',
-        f'<button type="button" class="btn-tool" id="voiceBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>{esc(t(lang, "voice_btn"))}</button>',
-        f'<button type="button" class="btn-tool" id="toggleGuideBtn">{esc(t(lang, "guide_btn"))} ▾</button>',
+        '<button type="button" class="btn-tool" id="voiceBtn">'
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
+        '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>'
+        '<path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>'
+        f'<span>{esc(t(lang, "voice_btn"))}</span></button>',
+        f'<label class="voice-language">{esc(t(lang, "voice_language"))}'
+        '<select id="voiceLanguage">'
+        f'<option lang="zh-CN" value="zh-CN"{zh_selected}>普通话</option>'
+        f'<option lang="en" value="en-US"{en_selected}>English</option>'
+        '</select></label>',
+        f'<button type="button" class="btn-tool" id="toggleGuideBtn" aria-controls="chipsDrawer" '
+        f'aria-expanded="{str(bool(suggested)).lower()}">{esc(t(lang, "guide_btn"))} ▾</button>',
         f'<button type="button" class="btn-tool" id="toggleApiBtn">{esc(t(lang, "api_btn"))}</button>',
         '</div><div class="tool-right">',
         f'<label class="switch"><input type="checkbox" id="compareCheck" name="compare" value="1" {checked}> {esc(t(lang, "compare_toggle"))}</label>',
         f'<button type="submit" class="btn-primary">{esc(btn_text)}</button>',
         "</div></div>",
-        '<div class="voice-tip" id="voiceTip"></div>',
+        '<div class="voice-tip" id="voiceTip" role="status"></div>',
+        '<section class="input-review" id="voiceReview" hidden>',
+        f'<label for="voiceText">{esc(t(lang, "voice_review"))}</label>',
+        '<textarea id="voiceText" rows="3" aria-describedby="voiceTip"></textarea>',
+        f'<button type="button" class="btn-tool" id="voiceAdd" disabled>{esc(t(lang, "story_add"))}</button> ',
+        f'<button type="button" class="btn-tool" id="voiceDiscard">{esc(t(lang, "voice_discard"))}</button>',
+        '</section>',
         '<div class="drawer" id="apiDrawer">',
         f'<div class="dim"><b>{esc(api_note)}</b></div>',
         '<div class="api-grid">',
@@ -921,10 +1067,23 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         '<input type="text" name="base_url" id="apiBaseInput" placeholder="Base URL (https://api.deepseek.com/v1)">',
         '<input type="text" name="model" id="apiModelInput" placeholder="Model (deepseek-chat)">',
         "</div></div>",
-        '<div class="drawer" id="chipsDrawer">',
-        f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, "guide_intro"))}</p>',
-        chips_html(lang=lang),
-        '<div id="explain"></div>',
+        f'<div class="drawer{drawer_open}" id="chipsDrawer">',
+        f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, guide_intro))}</p>',
+        f'<div class="chips" id="guideSuggestions">{"".join(quick_chips)}</div>',
+        '<section class="input-review" id="guidePrompt" tabindex="-1" aria-labelledby="guideTopic" '
+        'aria-describedby="guideQuestion" hidden>',
+        '<strong id="guideTopic"></strong>',
+        '<p id="guideQuestion"></p>',
+        '<p class="sub" id="guidePlain"></p>',
+        f'<p class="sub" id="guideExample" hidden>{esc(t(lang, "guide_example"))} · <span></span></p>',
+        f'<label for="guideAnswer">{esc(t(lang, "guide_answer"))}</label>',
+        '<textarea id="guideAnswer" rows="3" aria-describedby="guideQuestion guideExample"></textarea>',
+        f'<button type="button" class="btn-tool" id="guideAdd" disabled>{esc(t(lang, "story_add"))}</button>',
+        '</section>',
+        '<details class="guide-more" id="moreGuideTopics">',
+        f'<summary>{esc(t(lang, "guide_more"))}</summary>',
+        chips_html(lang=lang, exclude=excluded),
+        '</details>',
         "</div></form></section>",
     ]
     return "".join(out)
@@ -1036,13 +1195,16 @@ def render_page(
             f'<div class="card ask"><h1>{esc(t(lang, "need_more_title"))}</h1>'
             f'<h2>{esc(t(lang, "need_more_sub"))}</h2>'
         )
-        for q in report["questions"]:
-            body.append(f'<p style="margin:4px 0">· {esc(tr_question(lang, q))}</p>')
+        if print_mode:
+            for q in report["questions"]:
+                body.append(f'<p style="margin:4px 0">· {esc(tr_question(lang, q))}</p>')
+        else:
+            body.append(f'<p><a id="continueGuide" href="#chipsDrawer">{esc(t(lang, "guide_continue"))}</a></p>')
         if lang == "zh":
             for x in report.get("relative") or []:
                 body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
         body.append("</div>")
-        body.append(map_html(report.get("fields") or {}, clickable=True, lang=lang))
+        body.append(map_html(report.get("fields") or {}, lang=lang))
         body.append(gates_html(report.get("gates"), lang=lang))
         body.append(pending_html(report.get("pending") or [], story, lang=lang))
     else:

@@ -141,10 +141,11 @@ def test_need_more_page_has_clickable_map_and_form(server):
     assert 'class="cell missing"' in html
 
 
-def test_fill_button_text_is_template(server):
+def test_missing_fields_have_targeted_questions(server):
     _, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了", "lang": "zh"})
     assert "补：入职日期" in html
-    assert "data-text=" in html
+    assert 'data-guide-question="您是哪一天入职的？' in html
+    assert html.count('class="chip fill"') == 2
 
 def test_pdf_download_route(server):
     import urllib.parse as up
