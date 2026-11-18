@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import llm
 from .application import render_application, render_notes
+from .case_guidance import prompts_for_case
 from .chips import BY_TERM, groups
 from .cli import render_markdown
 from .compare import (
@@ -31,10 +32,7 @@ from .compare import (
 from .evidence import rows as evidence_rows, summary as evidence_summary
 from .i18n import (
     BURDEN_EN,
-    CLARIFICATION_GUIDES,
     case_prompt,
-    clarification_prompts,
-    staged_prompts,
     t,
     tr_basis,
     tr_chip,
@@ -47,13 +45,11 @@ from .i18n import (
     tr_field_hint,
     tr_field_label,
     tr_field_value,
-    tr_fill_text,
     tr_formula,
     tr_gate,
     tr_item,
     tr_map_summary,
     tr_material_row,
-    tr_question,
     tr_ref_case,
     tr_rehearsal_round,
     tr_scope_out,
@@ -64,8 +60,7 @@ from .i18n import (
 )
 from .map import FIELD_LABELS, completeness, summary_line
 from .pdf import render_pdf
-from .pipeline import QUESTIONS, analyze, covered_cities
-from .spoken_wage import ONGOING_WORK
+from .pipeline import analyze, covered_cities
 
 CSS = """
 *{box-sizing:border-box}
@@ -449,6 +444,7 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
   var guideAnswer = document.getElementById('guideAnswer');
   var guideAdd = document.getElementById('guideAdd');
   var guideExample = document.getElementById('guideExample');
+  var guidePlain = document.getElementById('guidePlain');
   var guideDrafts = new Map();
   var selectedChip = null;
 
@@ -464,7 +460,11 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
       chip.setAttribute('aria-pressed', 'true');
       document.getElementById('guideTopic').textContent = chip.textContent;
       document.getElementById('guideQuestion').textContent = chip.dataset.guideQuestion;
-      document.getElementById('guidePlain').textContent = chip.dataset.plain;
+      guidePlain.querySelector('span').textContent = chip.dataset.plain;
+      guidePlain.querySelector('strong').textContent = chip.dataset.suggestion === '1'
+        ? {_js_str("可选建议 · " if lang == "zh" else "Optional tip · ")}
+        : {_js_str("术语说明 · " if lang == "zh" else "About this term · ")};
+      guidePlain.hidden = !chip.dataset.plain;
       guideExample.querySelector('span').textContent = chip.dataset.example;
       guideExample.hidden = !chip.dataset.example;
       guideAnswer.value = guideDrafts.get(chip) || '';
@@ -478,6 +478,22 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
   guideAdd.addEventListener('click', function () {{
     var answer = guideAnswer.value.trim();
     if (!answer) return;
+    if (selectedChip && langInput.value === 'zh') {{
+      var topic = selectedChip.dataset.topic;
+      var amount = /^(?:[0-9,]+(?:\\.[0-9]+)?[万千百]?|[零〇一二两三四五六七八九十百千万]+)\\s*(?:元|块钱?)?$/;
+      var prefixes = {{gross_pay: '税前月薪', unpaid_total: '工资一共还差'}};
+      if (prefixes[topic] && amount.test(answer)) {{
+        answer = prefixes[topic] + ' ' + answer + (/元|块/.test(answer) ? '' : ' 元') + '。';
+      }} else if (topic === 'unpaid_span' && /^[0-9一二两三四五六七八九十]+\\s*个?月$/.test(answer)) {{
+        answer = '欠了' + answer + '工资。';
+      }} else if (topic === 'leave_days' && /^[0-9一二两三四五六七八九十]+\\s*天?$/.test(answer)) {{
+        answer = '年假还剩' + answer + (answer.endsWith('天') ? '' : '天') + '。';
+      }} else if (topic === 'overtime_rest' && /^(有|没有|没|没补休|没调休)$/.test(answer)) {{
+        answer = answer === '有' ? '周末加班后有过补休。' : '周末加班后没有补休。';
+      }} else if (topic === 'dismissal_reason' && /^(没有|没说|没给|不知道理由)$/.test(answer)) {{
+        answer = '公司没给理由。';
+      }}
+    }}
     guideAnswer.value = '';
     guideDrafts.delete(selectedChip);
     guideAdd.disabled = true;
@@ -808,10 +824,11 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
 QUICK_TOPICS = ("违法解除劳动合同", "拖欠工资", "未签书面劳动合同二倍工资")
 
 
-def guide_chip(label: str, question: str, example: str, plain: str = "", css: str = "chip") -> str:
+def guide_chip(label: str, question: str, example: str, plain: str = "", css: str = "chip", topic: str = "") -> str:
     return (
         f'<button type="button" class="{css}" aria-controls="guidePrompt" aria-pressed="false" '
-        f'data-guide-question="{esc(question)}" data-plain="{esc(plain)}" data-example="{esc(example)}">'
+        f'data-guide-question="{esc(question)}" data-plain="{esc(plain)}" data-example="{esc(example)}" '
+        f'data-suggestion="{int(css == "chip fill")}" data-topic="{esc(topic)}">'
         f'{esc(label)}</button>'
     )
 
@@ -836,26 +853,8 @@ def chips_html(lang: str = "zh", exclude: tuple[str, ...] = ()) -> str:
 def followup_chips(report: dict | None, lang: str) -> list[str]:
     if not report or report["status"] not in ("ok", "need_more"):
         return []
-    if report.get("staged_review"):
-        prompts = staged_prompts(report["staged_review"], lang)
-        return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
-    if report.get("clarification"):
-        prompts = clarification_prompts(report["clarification"], lang, report.get("case_goal", False))
-        return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
-    missing = report.get("missing", [])
-    sources = report.get("sources", {})
-    still_working = bool(ONGOING_WORK.search(report.get("story", "")))
-    suggestions = []
-    for key, label, hint in FIELD_LABELS:
-        if key not in QUESTIONS or (key not in missing and sources.get(key) != "assumed"):
-            continue
-        if still_working and key in ("end_date", "termination"):
-            continue
-        name = tr_field_label(lang, label)
-        prefix = "补：" if lang == "zh" else "+ "
-        example = tr_fill_text(lang, label, hint).removeprefix("例如：")
-        suggestions.append(guide_chip(prefix + name, tr_question(lang, QUESTIONS[key]), example, css="chip fill"))
-    return suggestions[:2]
+    return [guide_chip(title, question, example, tip, css="chip fill", topic=key)
+            for key, title, question, example, tip in prompts_for_case(report, lang)]
 
 
 def map_html(fields: dict, lang: str = "zh") -> str:
@@ -1183,18 +1182,16 @@ def compare_html(
         out.append(f'<div class="cmp-reply">{esc(summary)}</div>')
         out.append(f'<p><a class="export-btn" href="#caseProgress">{view}</a></p>')
     elif status == "need_more":
-        if report.get("clarification"):
-            title, reason, _, _, _ = CLARIFICATION_GUIDES[report["clarification"]][lang]
-            prompts = clarification_prompts(report["clarification"], lang, report.get("case_goal", False))
-            qs = [reason] + [question for _, question, _ in prompts[:2]]
-        else:
-            title = t(lang, "need_more_title")
-            qs = [tr_question(lang, q) for q in (report.get("questions") or [])]
+        prompts = prompts_for_case(report, lang)
+        title = "初步处理建议" if lang == "zh" else "Initial options"
+        qs = [CLAIM_STEPS[cause][int(lang != "zh")] for cause in report["scope"]["causes"] if cause in CLAIM_STEPS]
+        if not qs:
+            qs = [question for _, _, question, _, _ in prompts]
         out.append(f'<div class="hero-total" style="color:#92400e">{esc(title)}</div>')
         out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + q for q in qs))}</div>')
-        out.append(
-            f'<p><a class="export-btn" href="#caseGuide" data-open-case-guide>{esc(t(lang, "guide_continue"))}</a></p>'
-        )
+        if prompts:
+            view = "看可核对的问题" if lang == "zh" else "See questions to check"
+            out.append(f'<p><a class="export-btn" href="#caseGuide" data-open-case-guide>{view}</a></p>')
     elif status == "out_of_scope":
         title = "查看处理方向" if lang == "zh" else "See your options"
         kind = report["scope_assessment"]["kind"]
@@ -1302,9 +1299,9 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         'aria-describedby="guideQuestion" hidden>',
         '<strong id="guideTopic"></strong>',
         '<p id="guideQuestion"></p>',
-        '<p class="sub" id="guidePlain"></p>',
+        '<p class="sub" id="guidePlain" hidden><strong></strong><span></span></p>',
         f'<p class="sub" id="guideExample" hidden>{esc(t(lang, "guide_example"))} · <span></span></p>',
-        f'<label for="guideAnswer">{esc(t(lang, "guide_answer"))}</label>',
+        f'<label for="guideAnswer">{esc("用自己的话说" if lang == "zh" else "In your own words")}</label>',
         '<textarea id="guideAnswer" rows="3" aria-describedby="guideQuestion guideExample"></textarea>',
         f'<button type="button" class="btn-tool" id="guideAdd" disabled>{esc(t(lang, "story_add"))}</button>',
         '</section>',
@@ -1406,6 +1403,7 @@ def first_steps_panel(report: dict, lang: str) -> str:
     status = report["status"]
     title = ("你现在可以做什么", "What you can do now")[idx]
     out = [f'<section class="card"><h1>{title}</h1>']
+    out.append(known_case_facts(report, lang))
     if report.get("redirect") or report.get("scope", {}).get("cause") == "red_line":
         _, redirect, _ = tr_scope_out(lang, report)
         out.append(f'<p>{esc(redirect)}</p>')
@@ -1424,6 +1422,49 @@ def first_steps_panel(report: dict, lang: str) -> str:
         out.append(f'<p><a href="#caseCalculation">{("查看金额测算", "View the calculation")[idx]}</a></p>')
     out.append("</section>")
     return "".join(out)
+
+
+def known_case_facts(report: dict, lang: str) -> str:
+    if report["scope_assessment"]["kind"] not in ("labor", "mixed", "unclear"):
+        return ""
+    intake = report.get("intake", {})
+    fields = report.get("fields", {})
+    evidence = report.get("evidence", {})
+    idx = int(lang != "zh")
+
+    def money(value) -> str | None:
+        return f"¥{_money(value)}" if value is not None else None
+
+    def confirmed_date(key: str):
+        value = fields.get(key)
+        reading = evidence.get(key, "")
+        if report.get("sources", {}).get(key) == "confirmed":
+            return value
+        if not value or not reading or "推定" in reading:
+            return None
+        return value if "日" in reading or "号" in reading else value.strftime("%Y-%m")
+
+    wage_months = intake.get("wage_months")
+    leave_days = fields.get("unused_annual_leave_days")
+    hours = sum(fields.get(f"overtime_{category}_hours", 0) or 0 for category in ("workday", "restday", "holiday"))
+    contract = fields.get("has_written_contract")
+    rows = [
+        (("开始工作", "Work start"), confirmed_date("hire_date")),
+        (("在职状态", "Employment status"), ("仍在职", "Still employed")[idx] if intake.get("ongoing") else None),
+        (("口述结束日期", "Reported end date"), None if intake.get("ongoing") else confirmed_date("end_date")),
+        (("口述税前月薪", "Reported gross monthly pay"), money(intake.get("before_tax"))),
+        (("口述到手金额", "Reported take-home pay"), money(intake.get("after_tax"))),
+        (("描述中的月工资", "Reported monthly pay"), money(fields.get("monthly_wage")) if not intake.get("before_tax") and not intake.get("after_tax") else None),
+        (("口述欠薪时长", "Reported unpaid period"), (f"{wage_months} 个月", f"{wage_months} months")[idx] if wage_months else None),
+        (("还有几天年假", "Unused leave"), (f"{leave_days} 天", f"{leave_days} days")[idx] if leave_days is not None else None),
+        (("加班时长", "Overtime"), (f"{hours} 小时", f"{hours} hours")[idx] if hours else intake.get("overtime")),
+        (("书面劳动合同", "Written contract"), (("已签", "Signed") if contract else ("未签或未拿到合同", "Unsigned or copy unavailable"))[idx] if contract is not None else None),
+    ]
+    facts = "".join(f'<div><dt>{name[idx]}</dt><dd>{esc(value)}</dd></div>' for name, value in rows if value is not None)
+    if not facts:
+        return ""
+    heading = ("已识别的案情", "Facts identified")[idx]
+    return f'<h2>{heading}</h2><dl class="case-facts" id="knownCaseFacts">{facts}</dl>'
 
 
 def staged_panel(review: dict, lang: str, print_mode: bool) -> str:
@@ -1659,36 +1700,19 @@ def render_page(
                 model_name=(cfg or {}).get("model", "deepseek-chat"),
             ))
         clarification = report.get("clarification")
-        if not report.get("staged_review") and clarification:
-            title, reason, records, next_steps, _ = CLARIFICATION_GUIDES[clarification][lang]
-            prompts = clarification_prompts(clarification, lang, report.get("case_goal", False))
-            if clarification == "unclear_issue" and report.get("case_goal"):
-                reason = ("已经读到你的诉求。说说单位做了哪件事，就可以据此更新处理建议。"
-                          if lang == "zh" else "Your goal is recorded. Describe what the employer did to get more specific options.")
-            questions = [question for _, question, _ in prompts]
-            body.append(f'<div class="card ask"><h1>{esc(title)}</h1><p>{esc(reason)}</p>')
-            if records:
-                body.append(f'<p>{esc(records)}</p>')
-            if next_steps:
-                body.append(f'<p>{esc(next_steps)}</p>')
-        elif not report.get("staged_review"):
-            questions = [tr_question(lang, q) for q in report["questions"]]
-            body.append(
-                f'<div class="card ask"><h1>{esc(t(lang, "need_more_title"))}</h1>'
-                f'<p>{esc(t(lang, "need_more_sub"))}</p>'
-            )
-        if not report.get("staged_review") and print_mode:
-            for q in questions:
-                body.append(f'<p style="margin:4px 0">· {esc(q)}</p>')
-        elif not report.get("staged_review"):
-            body.append(
-                f'<p><a id="continueGuide" class="export-btn" href="#caseGuide" data-open-case-guide>'
-                f'{esc(t(lang, "guide_continue"))}</a></p>'
-            )
-        if not report.get("staged_review"):
-            if lang == "zh":
-                for x in report.get("relative") or []:
-                    body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
+        prompts = prompts_for_case(report, lang)
+        relative = (report.get("relative") or []) if lang == "zh" and not report.get("staged_review") else []
+        if relative or (prompts and not report.get("staged_review")):
+            title = "需要时再核对" if lang == "zh" else "Details to verify if needed"
+            body.append(f'<div class="card ask"><h2>{title}</h2>')
+            if print_mode:
+                for _, _, question, _, _ in prompts:
+                    body.append(f'<p>{esc(question)}</p>')
+            elif prompts:
+                view = "看可核对的问题" if lang == "zh" else "See questions to check"
+                body.append(f'<p><a id="continueGuide" class="export-btn" href="#caseGuide" data-open-case-guide>{view}</a></p>')
+            for detail in relative:
+                body.append(f'<p>{esc(detail)}</p>')
             body.append("</div>")
         if not clarification:
             body.append(map_html(report.get("fields") or {}, lang=lang))

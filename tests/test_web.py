@@ -75,11 +75,11 @@ def test_post_analyze_ok(server):
 def test_post_need_more(server):
     code, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了"})
     assert code == 200
-    assert "More Information Required" in html
+    assert "Details to verify if needed" in html
 
     code_zh, html_zh, _ = fetch(server + "/analyze", {"story": "公司把我辞了", "lang": "zh"})
     assert code_zh == 200
-    assert "还差几个信息" in html_zh or "请补充" in html_zh
+    assert "需要时再核对" in html_zh
 
 
 def test_post_out_of_scope(server):
@@ -113,7 +113,7 @@ def test_add_answer_skips_already_stated_goal_and_refreshes_review(server):
     updated = story + "\n工资他没有发出来，我一个月基本工资六千。"
     _, second, _ = fetch(server + "/analyze", {"story": updated, "lang": "zh", "review_update": "1", "compare": "1"})
     assert 'value="85" aria-labelledby="scopeTitle"' in second
-    assert "欠付月份和金额" in second and "单位做了什么" not in second
+    assert "欠了几个月" in second and "单位做了什么" not in second
     assert 'id="aiReplyBox"' not in second
 
 
@@ -177,9 +177,28 @@ def test_need_more_page_has_clickable_map_and_form(server):
 
 def test_missing_fields_have_targeted_questions(server):
     _, html, _ = fetch(server + "/analyze", {"story": "公司把我辞了", "lang": "zh"})
-    assert "补：入职日期" in html
-    assert 'data-guide-question="您是哪一天入职的？' in html
-    assert html.count('class="chip fill"') == 2
+    assert "哪天开始干的" in html
+    assert "税前多少钱" in html
+    assert 'data-example="我于___年___月___日入职___单位，担任___。"' in html
+    assert 'data-plain="可以看工资条上的「应发合计」' in html
+    assert html.count('class="chip fill"') == 3
+
+
+@pytest.mark.parametrize("story,known,remaining,already_answered", [
+    ("公司三个月工资都没发，银行每个月到手六千五。", "3 个月", "一共还差多少", "欠了几个月"),
+    ("老板说以后不用再来了，我是2024年3月开始上班的，税前一万一，他没给理由。", "¥11,000.00", "哪天让你走的", "是谁提出离职的"),
+    ("我现在还在职，周六还要来上班，平时加班到晚上九点。", "周六还要来上班", "周末有没有补休", "哪天多干了几小时"),
+    ("公司不让休年假，我的年假还剩三天。", "3 天", "税前多少钱", "年假还剩几天"),
+    ("我连书面合同都没签过，公司让我来上班已经半年了。", "未签或未拿到合同", "哪天开始干的", "后来哪天补签的"),
+])
+def test_oral_facts_and_guides_vary_by_case(server, story, known, remaining, already_answered):
+    _, html, _ = fetch(server + "/analyze", {"story": story, "lang": "zh"})
+    facts = html.split('id="knownCaseFacts"', 1)[1].split("</dl>", 1)[0]
+    questions = html.split('id="guideSuggestions"', 1)[1].split("</div>", 1)[0]
+    assert known in facts
+    assert remaining in questions
+    assert already_answered not in questions
+    assert 'data-suggestion="1"' in questions
 
 def test_pdf_download_route(server):
     import urllib.parse as up

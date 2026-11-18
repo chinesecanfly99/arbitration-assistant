@@ -25,6 +25,7 @@ from typing import Any
 from . import city as city_store
 from . import laws, materials as materials_kb, venue as venue_kb, worth as worth_kb
 from .calc import ClaimInput, compute
+from .case_intake import read_case_facts
 from .deadline import analyze as analyze_deadlines
 from .evidence import score as evidence_score
 from .extract import extract
@@ -34,7 +35,7 @@ from .map import FIELD_LABELS
 from .reference_cases import recommend
 from .mock_hr import rehearsal
 from .scope import STUDENT_WORK, WORK_TRANSITION, assess_scope, judge
-from .spoken_wage import CASE_GOAL, stated_unpaid_total
+from .spoken_wage import stated_unpaid_total
 from .staged_pay import review_staged_pay
 
 # 这些字段的 None 表示"用户没说"，不能直接喂给 ClaimInput（None 会顶掉默认值，
@@ -148,6 +149,23 @@ def analyze(
     today = today or date.today()
     ex = extract(story, today=today)
     fields = dict(ex["fields"])
+    intake = read_case_facts(story)
+    if intake["before_tax"] is not None:
+        fields["monthly_wage"] = float(intake["before_tax"])
+    elif fields.get("monthly_wage") is None and intake["monthly_pay"] is not None:
+        fields["monthly_wage"] = float(intake["monthly_pay"])
+    elif (
+        intake["after_tax"] is not None
+        and fields.get("monthly_wage") == float(intake["after_tax"])
+        and not ex["evidence"].get("monthly_wage", "").startswith(("工资", "月薪", "月工资", "每月", "一个月"))
+    ):
+        # A bank deposit alone cannot supply the gross wage base.
+        fields["monthly_wage"] = None
+    if fields.get("unused_annual_leave_days") is None and intake["leave_days"] is not None:
+        fields["unused_annual_leave_days"] = intake["leave_days"]
+    fields.update(intake["overtime_hours"])
+    if intake["restday_compensated"]:
+        fields["restday_compensated_by_leave"] = True
     pending, sources = merge_hints(fields, hints, {str(c) for c in (confirmed or ())})
 
     # 缺字段：mode="best_effort" 时按最保守的默认值试算，并在 assumptions 里明说
@@ -190,6 +208,8 @@ def analyze(
             "fields": fields,
             "sources": sources,
             "pending": pending,
+            "intake": intake,
+            "evidence": ex["evidence"],
             "scope": {"cause": verdict.cause, "reason": verdict.refusal_reason},
             "redirect": verdict.redirect,
             "hints": verdict.hints,
@@ -205,6 +225,7 @@ def analyze(
         "sources": sources,
         "pending": pending,
         "evidence": ex["evidence"],
+        "intake": intake,
         "relative": ex["relative"],
         "gates": gates,
         "scope": {"cause": verdict.cause, "causes": verdict.causes, "hints": verdict.hints},
@@ -223,7 +244,7 @@ def analyze(
 
     if clarification:
         _, reason, _, _, _ = CLARIFICATION_GUIDES[clarification]["zh"]
-        case_goal = bool(CASE_GOAL.search(story))
+        case_goal = intake["goal"]
         prompts = clarification_prompts(clarification, "zh", case_goal)
         if staged_review is not None:
             prompts = staged_prompts(staged_review, "zh")

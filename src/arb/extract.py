@@ -32,7 +32,7 @@ WAGE_ALT = re.compile(r"(\d{3,6})\s*(?:块|元)\s*(?:一个月|/月|每月)?")
 HIRE_CTX = ("入职", "进厂", "进公司", "开始上班", "开始做", "上岗", "来的")
 END_CTX = ("离职", "走的", "走人", "辞职", "辞退", "被辞", "解除", "不干了", "离开", "裁员",
            "到期", "没发工资", "欠薪", "试用期最后一天", "干到", "做到", "就辞了")
-END_PAT = re.compile(r"让我(?:当天|立刻|马上|明天)?走|不要我了|别来了|不用来了|把我(?:辞|开|炒)了|(?:被|把我)开除")
+END_PAT = re.compile(r"让我(?:当天|立刻|马上|明天)?走|不要我了|别再?来了|不用(?:再)?来了|把我(?:辞|开|炒)了|(?:被|把我)开除")
 
 OT_TYPE = [
     ("overtime_workday_hours", ("工作日", "平时晚上", "下班后")),
@@ -162,7 +162,7 @@ def extract(story: str, today: date | None = None) -> dict:
         ctx_before = story[max(0, s0 - 24) : s0]
         ctx_after = story[e0 : e0 + 24]
         ctx = ctx_before + ctx_after
-        if re.search(r"^[^。，]{0,6}(?:补签|补订|签订|订立)", ctx_after):
+        if re.search(r"^[^。，]{0,6}(?:补签|补订|签订|订立|才签|实际签字|实际签署)", ctx_after):
             fields["contract_signed_date"] = dt
             continue
         near_end = max([ctx.rfind(k) for k in END_CTX] + [-1])
@@ -248,7 +248,7 @@ def extract(story: str, today: date | None = None) -> dict:
         ev["termination"] = "公司以旷工为由解除，但起因是调岗/搬迁（推定违法解除）"
     elif re.search(r"依法解除|依法终止|提前终止|公司依法", story):
         fields["termination"] = "legal_termination"
-    elif re.search(r"违法解除|违法辞退|口头辞退|被辞退|被辞|让我当天走|让我立刻走|要我立刻走|要我走|把我辞|把我开|不要我了|别来了", story):
+    elif re.search(r"违法解除|违法辞退|口头辞退|被辞退|被辞|让我当天走|让我立刻走|要我立刻走|要我走|把我辞|把我开|不要我了|别来了|把我炒", story) or re.search(r"(?:说|让我|通知我|叫我).{0,8}(?:不用(?:再)?来了|别再?来|不用上班了)", story):
         fields["termination"] = "illegal_dismissal"
     elif re.search(r"协商一致|协商解除|谈好|签了协议|双方同意", story):
         fields["termination"] = "mutual_agreement"
@@ -260,7 +260,7 @@ def extract(story: str, today: date | None = None) -> dict:
         # 公司动作为主语的"解除"，规则层按违法解除处理；最终要用户确认
         fields["termination"] = "illegal_dismissal"
 
-    if re.search(r"没签|没有签|一直没(?:跟|给|和)我?签|未签|没给我签|没跟我签|两份都收走|都收走了|收走没给我", story):
+    if re.search(r"没签|没有签|一直没(?:有)?(?:跟|给|和)我?签|未签|没给我签|没跟我签|两份都收走|都收走了|收走没给我", story):
         fields["has_written_contract"] = False
     elif re.search(
         r"(?:签了|签过|签订了?|补签了?|订立了?)(?:一份|书面)?(?:劳动)?合同"

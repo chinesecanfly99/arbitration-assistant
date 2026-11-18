@@ -49,9 +49,9 @@ RED_LINE_PATTERNS = [
 
 # 案由关键词（按优先级从高到低匹配）
 CAUSE_RULES = [
-    ("illegal_dismissal", [r"违法解除", r"违法辞退", r"口头辞退", r"被辞", r"让我(?:当天|立刻|马上|明天)?走", r"不要我了", r"开除", r"把我(?:辞|开)", r"(?i)\b(?:fired|dismissed|wrongful\s+termination|illegal\s+dismissal|laid\s+off)\b"]),
-    ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"二倍工资", r"双倍工资", r"补签", r"一直没签", r"两份都收走", r"都收走了", r"(?i)\b(?:no|without|never\s+signed)\b.{0,20}\bcontract\b"]),
-    ("overtime", [r"加班", r"周末上班", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班", r"(?i)\bovertime\b"]),
+    ("illegal_dismissal", [r"违法解除", r"违法辞退", r"口头辞退", r"被辞", r"让我(?:当天|立刻|马上|明天)?走", r"不要我了", r"开除", r"把我(?:辞|开|炒)", r"(?:说|让我|通知我|叫我).{0,8}(?:不用(?:再)?来了|别再?来|不用上班了)", r"(?i)\b(?:fired|dismissed|wrongful\s+termination|illegal\s+dismissal|laid\s+off)\b"]),
+    ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"合同.{0,5}(?:都|一直)?没(?:有)?签", r"一直没(?:有)?(?:给|跟|和)我签", r"二倍工资", r"双倍工资", r"补签", r"一直没签", r"两份都收走", r"都收走了", r"(?i)\b(?:no|without|never\s+signed)\b.{0,20}\bcontract\b"]),
+    ("overtime", [r"加班", r"周末上班", r"(?:周[六日]|星期[六日]|休息日).{0,7}(?:还要|照常|也要)(?:来|上班)", r"(?:每天|经常|下班后).{0,12}(?:干到|做到|忙到)(?:很晚|晚上|半夜)", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班", r"(?i)\bovertime\b"]),
     ("annual_leave", [r"年假", r"年休假", r"(?i)\bannual\s+leave\b"]),
     ("unpaid_wage", [
         r"拖欠|欠.{0,12}工资|没(?:有)?发工资|工资.{0,6}(?:没发|没结|没给|欠着|未发|未结|少发|少给|少算)|扣工资|克扣",
