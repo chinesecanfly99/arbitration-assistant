@@ -488,6 +488,14 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
         answer = '欠了' + answer + '工资。';
       }} else if (topic === 'leave_days' && /^[0-9一二两三四五六七八九十]+\\s*天?$/.test(answer)) {{
         answer = '年假还剩' + answer + (answer.endsWith('天') ? '' : '天') + '。';
+      }} else if (topic === 'paid_days' && /^(?:[0-9]+(?:\\.[05])?|[一二两三四五六七八九十]+)\\s*天?$/.test(answer)) {{
+        answer = '本期计薪' + answer + (answer.endsWith('天') ? '' : '天') + '。';
+      }} else if (topic === 'hire_date' && /^20\\d{{2}}年\\s*\\d{{1,2}}月(?:\\s*\\d{{1,2}}[日号])?$/.test(answer)) {{
+        answer = '入职日期是' + answer + '。';
+      }} else if (topic === 'effective_date' && /^20\\d{{2}}年\\s*\\d{{1,2}}月\\s*\\d{{1,2}}[日号]$/.test(answer)) {{
+        answer = '解除生效日期是' + answer + '。';
+      }} else if (topic === 'injury_recognition' && /^(已提交|已申请|还没申请|尚未申请)$/.test(answer)) {{
+        answer = '工伤认定' + answer + '。';
       }} else if (topic === 'overtime_rest' && /^(有|没有|没|没补休|没调休)$/.test(answer)) {{
         answer = answer === '有' ? '周末加班后有过补休。' : '周末加班后没有补休。';
       }} else if (topic === 'dismissal_reason' && /^(没有|没说|没给|不知道理由)$/.test(answer)) {{
@@ -1174,6 +1182,13 @@ def compare_html(
             left = t(lang, "expired") if d["expired"] else t(lang, "days_left", n=d["days_left"])
             out.append(f'<div class="pro-item">✓ {esc(t(lang, "kpi_deadline"))}: {esc(d["deadline"])} ({esc(left)})</div>')
         out.append("</div>")
+    elif report.get("issue_review"):
+        title = "先核对金额差异" if lang == "zh" else "Check what drives the difference"
+        lines = dispute_checks(report["issue_review"], lang)
+        link = "看各项依据和条件" if lang == "zh" else "See the facts and conditions"
+        out.append(f'<div class="hero-total">{title}</div>')
+        out.append(f'<div class="cmp-reply">{esc(chr(10).join(lines))}</div>')
+        out.append(f'<p><a class="export-btn" href="#issueBreakdown">{link}</a></p>')
     elif report.get("staged_review"):
         title = "实习与转正欠薪初步分析" if lang == "zh" else "Initial wage assessment"
         summary = SCOPE_TEXT[report["scope_assessment"]["kind"]][int(lang != "zh")]
@@ -1467,6 +1482,144 @@ def known_case_facts(report: dict, lang: str) -> str:
     return f'<h2>{heading}</h2><dl class="case-facts" id="knownCaseFacts">{facts}</dl>'
 
 
+def dispute_checks(review: dict, lang: str) -> list[str]:
+    idx = int(lang != "zh")
+    lines = []
+    if review["pay"]:
+        lines.append((
+            "工资按本期应发和已发核对。计薪记录、工资条和流水会影响这一项的金额。",
+            "Compare pay due and pay received for the period. Check payable days, payslips and payments.",
+        )[idx])
+    if review["dismissal"]:
+        lines.append((
+            "解除金额取决于入职时间、计算基数和解除是否符合法定条件。",
+            "Termination amounts depend on service dates, the wage base and whether the dismissal was lawful.",
+        )[idx])
+    if review["injury"] or review["administrative"]:
+        lines.append((
+            "认定、待遇或补缴有各自的办理路径，可与工资和解除争议并行核对。",
+            "Recognition, benefits and contributions have their own procedures alongside pay and termination disputes.",
+        )[idx])
+    return lines
+
+
+DISMISSAL_LAW_URL = "https://www.mohrss.gov.cn/xxgk2020/fdzdgknr/zcfg/fl/202011/t20201102_394622_wap.html"
+WAGE_DAY_URL = "https://www.mohrss.gov.cn/SYrlzyhshbzb/laodongguanxi_/zcwj/202501/t20250101_533693.html"
+INJURY_LAW_URL = "https://xzfg.moj.gov.cn/front/law/detail?LawID=610"
+
+
+def issue_breakdown_panel(report: dict, lang: str) -> str:
+    def label(zh: str, en: str) -> str:
+        return zh if lang == "zh" else en
+
+    def yuan(amount) -> str:
+        return f"¥{_money(amount)}"
+
+    review = report["issue_review"]
+    out = [
+        f'<section class="card" id="issueBreakdown"><h1>{label("多项争议分开核对", "Review each issue separately")}</h1>',
+        f'<p class="sub">{label("各项的依据、办理途径和金额条件列在下面。确认新的事实后，相应项目会更新。", "Check the facts, procedures and assumptions for each issue. Each item updates when you add information.")}</p>',
+    ]
+    pay = review["pay"]
+    wage = review["monthly_wage"]
+    if pay:
+        out.append(f'<h2>{label("欠薪与当月计薪", "Unpaid wages for the period")}</h2>')
+        if pay["difference"] is not None:
+            amount = yuan(pay["difference"])
+            result = label("口述欠付金额", "Reported amount outstanding") if pay["stated_total"] else label("按所填信息核对的差额", "Shortfall from your inputs")
+            out.append(f'<p id="reviewWageDifference">{result} <strong>{amount}</strong></p>')
+        elif pay["partial"]:
+            out.append(f'<p>{label("你说只工作了半个月，欠薪应根据本期计薪记录和实际支付核对。", "You reported working half the month. Check the payable days and actual payments for that period.")}</p>')
+            if wage and pay["days"] is None:
+                example = yuan(wage / 2)
+                out.append(f'<p class="sub">{label(f"若仅作半月比例粗估，约为 {example}。具体应发请对照工资条、实际计薪天数和已发记录。", f"A simple half-month estimate gives about {example}. Check actual payable days and payments on the payroll record.")}</p>')
+        else:
+            out.append(f'<p>{label("保存工资条、考勤和银行流水，按每期应发减同口径的已发金额核对。", "Compare pay due and pay received for each period on the same basis.")}</p>')
+        if pay["due"] is not None and not pay["stated_total"]:
+            days = format(pay["days"], "f")
+            due = yuan(pay["due"])
+            formula = f"{yuan(wage)} ÷ 21.75 × {days} = {due}"
+            if pay["received"] is not None:
+                formula += label(f"，本期已发 {yuan(pay['received'])}。", f"; already paid {yuan(pay['received'])}.")
+            out.append(f'<p class="sub">{esc(formula)}</p>')
+        out.append(f'<p><a href="{WAGE_DAY_URL}">{label("日工资折算依据", "Official daily wage calculation")}</a></p>')
+    if review["dismissal"]:
+        out.append(f'<h2>{label("解除赔偿或经济补偿", "Compensation for ending employment")}</h2>')
+        start = review["start_window"]
+        end = review["end"]
+        rows = []
+        if start:
+            earliest, latest = start
+            if earliest == latest:
+                start_label = str(earliest)
+            elif earliest.month == latest.month:
+                start_label = label(f"{earliest:%Y-%m}（具体日期待核对）", f"{earliest:%Y-%m} (day to verify)")
+            else:
+                start_label = label(f"{earliest.year} 年（具体月份待核对）", f"{earliest.year} (month to verify)")
+            rows.append((label("口述入职时间", "Reported start"), start_label))
+        if review["departure"] and review["departure"] != end:
+            rows.append((label("口述最后工作日", "Reported last work day"), str(review["departure"])))
+        if end:
+            caption = label("口述离开时间", "Reported departure") if review["end_needs_review"] else label("口述结束时间", "Reported end")
+            rows.append((caption, str(end)))
+        if review["reported_years"]:
+            rows.append((label("口述工龄", "Reported service"), label(f"约 {review['reported_years']} 年", f"About {review['reported_years']} years")))
+        if rows:
+            facts = "".join(f'<div><dt>{name}</dt><dd>{esc(value)}</dd></div>' for name, value in rows)
+            out.append(f'<dl class="case-facts" id="reviewServiceDates">{facts}</dl>')
+        reason_labels = {
+            "capability": label("工作能力或绩效", "capability or performance"),
+            "layoff": label("裁员", "layoff"),
+            "age": label("年龄", "age"),
+            "injury": label("受伤及治疗", "injury or treatment"),
+        }
+        if review["reasons"]:
+            reason_text = "、".join(reason_labels[key] for key in review["reasons"])
+            out.append(f'<p>{label("描述涉及的解除理由", "Reasons mentioned in the account")} <strong>{reason_text}</strong></p>')
+        if review["end_needs_review"]:
+            out.append(f'<p class="case-conflict">{label("描述里同时出现了月中离开和月底通知。以下暂按口述离开日试算，正式解除日期可另行核对。", "The account gives a mid-month departure and a month-end notice. The amounts use the departure date until the effective date is confirmed.")}</p>')
+        out.append(f'<p>{label("让单位明确实际采用的解除理由，并核对通知、证据和程序。例如，以不能胜任为由时，核对是否经过培训或调岗；称经济性裁员时，核对是否满足裁员条件及程序。", "Identify the ground the employer relied on and check the notice, evidence and procedure. For inability to perform, check training or reassignment. For redundancy, check statutory grounds and process.")}</p>')
+        if review["scenarios"]:
+            options = (
+                ("n", label("符合依法应付经济补偿的条件时（N）", "If statutory severance is due (N)")),
+                ("2n", label("被认定违法解除且适用赔偿金时（2N）", "If unlawful dismissal compensation applies (2N)")),
+            )
+            for key, caption in options:
+                low, high = review["scenarios"][key]
+                amount = yuan(low) if low == high else f"{yuan(low)} – {yuan(high)}"
+                out.append(f'<p>{caption} <strong id="review-{key}">{amount}</strong></p>')
+            basis = label(f"暂按口述月薪 {yuan(wage)} 试算，需核对解除前十二个月平均应得工资及当地封顶口径。N 和 2N 对应不同情形，只取适用的一项。",
+                          f"Illustrated at the reported monthly pay of {yuan(wage)}. Check the last 12 months' average wage and local caps. N and 2N are alternative outcomes.")
+            out.append(f'<p class="sub">{basis}</p>')
+        elif review["suspect_start"]:
+            out.append(f'<p class="case-conflict">{label("口述工龄与可核对的入职日期还对不上。核对入职和结束日期后，再按条件估算补偿或赔偿。", "The reported tenure needs a reliable start date. Confirm the start and end before estimating severance or compensation.")}</p>')
+        out.append(f'<p class="sub">{label("如果希望继续履行劳动合同，也可把这个诉求单独提出来核对。", "If you want to continue the employment contract, raise that request separately.")}</p>')
+        out.append(f'<p><a href="{DISMISSAL_LAW_URL}">{label("《劳动合同法》第 40、41、42、47、48、87 条", "Labor Contract Law, Arts. 40, 41, 42, 47, 48 and 87")}</a></p>')
+    if review["injury"]:
+        status = {
+            "denied": label("口述已有不予认定决定，可核对决定书及救济告知。", "You describe a decision denying recognition. Check the decision and review instructions."),
+            "not_filed": label("你提到尚未申请工伤认定，可先核对申请期限。", "You report no application yet. Check the filing deadline."),
+            "pending": label("你提到已提交工伤认定，可核对申请回执和后续通知。", "You describe a pending application. Check the receipt and notices."),
+            "recognized": label("你提到已有工伤认定，可核对决定书、停工治疗时间和相应待遇。", "You describe a recognition decision. Check the decision, treatment period and applicable benefits."),
+        }.get(review["recognition"])
+        out.append(
+            f'<h2>{label("受伤与工伤办理", "Injury and work-injury procedures")}</h2>'
+            f'<p>{label("先核对事故与工作的关系、伤情和工伤认定进度。怀疑因工作受伤时，可向当地人社局工伤科咨询；保留事故记录、就诊资料和用工证明。", "Check whether the accident was connected to work and the status of any application. Ask the local human resources and social security office about recognition, and keep accident, medical and employment records.")}</p>'
+            f'<p>{label("通常由单位在事故发生后 30 日内申请。单位未申请时，职工一方一般可在 1 年内申请。停工留薪和其他待遇结合认定、医疗资料及适用条件另行核对。", "The employer generally applies within 30 days. If it does not, workers generally have one year to apply. Check paid medical leave and other benefits against the decision, medical records and applicable conditions.")}</p>'
+            f'<p><a href="{INJURY_LAW_URL}">{label("《工伤保险条例》第 17、33 条", "Work Injury Insurance Regulations, Arts. 17 and 33")}</a></p>'
+        )
+        if status:
+            out.append(f'<p id="reviewInjuryStatus">{status}</p>')
+    if report.get("redirect") and review["administrative"] != "工伤":
+        _, redirect, _ = tr_scope_out(lang, report)
+        out.append(f'<h2>{label("其他办理事项", "Other procedures")}</h2><p>{esc(redirect)}</p>')
+    extras = [cause for cause in report["scope"]["causes"] if cause not in ("unpaid_wage", "illegal_dismissal", "severance", "mutual_agreement") and cause in CLAIM_STEPS]
+    for cause in extras:
+        out.append(f'<p>{esc(CLAIM_STEPS[cause][int(lang != "zh")])}</p>')
+    out.append("</section>")
+    return "".join(out)
+
+
 def staged_panel(review: dict, lang: str, print_mode: bool) -> str:
     def label(zh: str, en: str) -> str:
         return zh if lang == "zh" else en
@@ -1641,10 +1794,12 @@ def render_page(
         body.append(input_console_html(story=story, show_compare=show_compare, report=report, lang=lang))
 
     if report is not None:
-        initial = (
-            staged_panel(report["staged_review"], lang, print_mode)
-            if report.get("staged_review") else first_steps_panel(report, lang)
-        )
+        if report.get("issue_review"):
+            initial = issue_breakdown_panel(report, lang)
+        elif report.get("staged_review"):
+            initial = staged_panel(report["staged_review"], lang, print_mode)
+        else:
+            initial = first_steps_panel(report, lang)
         body.append(f'<div class="case-findings" id="caseProgress">{initial}{scope_panel(report, lang)}</div>')
 
     if report is None:
@@ -1701,8 +1856,9 @@ def render_page(
             ))
         clarification = report.get("clarification")
         prompts = prompts_for_case(report, lang)
-        relative = (report.get("relative") or []) if lang == "zh" and not report.get("staged_review") else []
-        if relative or (prompts and not report.get("staged_review")):
+        separate_review = report.get("staged_review") or report.get("issue_review")
+        relative = (report.get("relative") or []) if lang == "zh" and not separate_review else []
+        if relative or (prompts and not separate_review):
             title = "需要时再核对" if lang == "zh" else "Details to verify if needed"
             body.append(f'<div class="card ask"><h2>{title}</h2>')
             if print_mode:
@@ -1714,7 +1870,7 @@ def render_page(
             for detail in relative:
                 body.append(f'<p>{esc(detail)}</p>')
             body.append("</div>")
-        if not clarification:
+        if not clarification and not separate_review:
             body.append(map_html(report.get("fields") or {}, lang=lang))
         body.append(gates_html(report.get("gates"), lang=lang))
         body.append(pending_html(report.get("pending") or [], story, lang=lang))

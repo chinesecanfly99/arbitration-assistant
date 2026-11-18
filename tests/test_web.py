@@ -123,7 +123,44 @@ def test_relevance_gives_intake_and_civil_next_steps(server):
     assert "保留租约" in civil and "12348" in civil
     _, mixed, _ = fetch(server + "/analyze", {"story": "公司没有发工资，还要咨询工伤认定。", "lang": "zh"})
     assert 'value="65" aria-labelledby="scopeTitle"' in mixed
-    assert "人社局工伤科" in mixed and "按月保留工资约定" in mixed
+    assert "人社局工伤科" in mixed and "欠薪与当月计薪" in mixed
+
+
+def test_complex_case_shows_independent_claims_and_refines_each_on_update(server):
+    story = (
+        "我在这家公司工作了九年左右，税前月薪12000元，2017年工作开始的。"
+        "2026年4月上班时发生事故受伤，4月14日走的。公司月底说不用再来了，说我工作能力不行和要裁员。"
+        "这个月工资没有给，我只工作了半个月，前面的都发了。"
+    )
+    report = analyze(story, mode="best_effort")
+    review = report["issue_review"]
+    assert "total" not in report and report["fields"]["hire_date"] is None
+    assert review["reported_years"] == 9 and review["end_needs_review"]
+    assert review["pay"]["partial"] and review["pay"]["difference"] is None
+    assert review["scenarios"]["2n"] == [204000, 228000] and review["injury"]
+    _, html, _ = fetch(server + "/analyze", {"story": story, "lang": "zh", "compare": "1"})
+    assert "先核对金额差异" in html and "多项争议分开核对" in html
+    assert "2017 年（具体月份待核对）" in html
+    assert "合同哪天正式解除" in html and "受伤与工伤办理" in html
+    assert 'id="reviewWageDifference"' not in html
+    updated = story + "\n入职日期是2017年8月20日。本期计薪11天。解除生效日期是2026年4月30日。工伤认定已提交。"
+    _, html, _ = fetch(server + "/analyze", {"story": updated, "lang": "zh", "review_update": "1"})
+    assert 'id="review-2n">¥216,000.00' in html
+    assert 'id="reviewWageDifference"' in html and "¥6,068.97" in html
+    assert 'id="reviewInjuryStatus"' in html
+    assert "2026-04-14" in html and "2026-04-30" in html
+    assert 'data-topic="effective_date"' not in html
+    assert 'data-topic="paid_days"' not in html
+
+
+def test_multiple_chinese_article_references_are_attributed_to_the_same_law():
+    from arb.compare import audit_reply_citations
+
+    result = audit_reply_citations("按《劳动合同法》第47、87条（解除），第30条（工资）。另见《工伤保险条例》第33条。")
+    assert [row["cite"] for row in result["items"]] == [
+        "《劳动合同法》第47条", "《劳动合同法》第87条", "《劳动合同法》第30条", "《工伤保险条例》第33条",
+    ]
+    assert result["verified"] == 3
 
 
 def test_application_download(server):

@@ -22,6 +22,13 @@ def test_n_half_month():
     assert item.amount == 5000.0  # 3 个月工龄 -> 半个月
 
 
+def test_n_keeps_the_fraction_after_an_anniversary():
+    result = compute(make(end_date=date(2020, 1, 2)))
+    assert result["service_months"] == 36
+    assert result["severance_months"] == 3.5
+    assert result["total"] == 35000.0
+
+
 def test_n_six_months_counts_as_one_year():
     item = economy_compensation(make(hire_date=date(2020, 1, 1), end_date=date(2020, 7, 1)), Policy())
     assert item.amount == 10000.0

@@ -87,6 +87,14 @@ def severance_months_by_law(months: int) -> float:
     return years + 0.5
 
 
+def _severance_months_for_dates(hire: date, end: date, months: int) -> float:
+    months_due = severance_months_by_law(months)
+    if months >= 12 and months % 12 == 0 and end > add_months(hire, months):
+        # A few days after an anniversary still count as a fraction of a service year.
+        months_due += 0.5
+    return months_due
+
+
 @dataclass
 class Item:
     name: str
@@ -113,7 +121,7 @@ def _round2(x: float) -> float:
 def economy_compensation(inp: ClaimInput, policy: Policy) -> Item:
     """经济补偿 N（第 47 条）。3 倍封顶时年限最高 12 年。"""
     months = service_months(inp.hire_date, inp.end_date)
-    n_months = severance_months_by_law(months)
+    n_months = _severance_months_for_dates(inp.hire_date, inp.end_date, months)
 
     base = inp.monthly_wage
     note = ""
@@ -295,7 +303,7 @@ def compute(inp: ClaimInput, policy: Optional[Policy] = None) -> dict:
     warnings: list[str] = []
 
     months = service_months(inp.hire_date, inp.end_date)
-    n_months = severance_months_by_law(months)
+    n_months = _severance_months_for_dates(inp.hire_date, inp.end_date, months)
 
     if inp.monthly_wage <= 0:
         warnings.append("月工资为 0 或未提供，补偿类金额将不可信")

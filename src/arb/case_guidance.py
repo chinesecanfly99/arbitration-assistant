@@ -37,6 +37,18 @@ PROMPTS = {
         ("一共还差多少", "你提过欠薪的月份。算得出来的话，一共还差多少钱？", "按工资条与到账记录核对，___期间尚欠工资共计___元。", "如果有的月份只发了一部分，可以只说该月还差多少。"),
         ("What is still outstanding?", "If you have added it up, what is still unpaid across those months?", "For ___, the outstanding wages total ___ based on payslips and deposits.", "For a partially paid month, you can give just the shortfall."),
     ),
+    "paid_days": (
+        ("这个月计薪几天", "你说只干了半个月。工资条或考勤显示，本期该算工资的天数是多少？已发了多少？", "本期计薪___天，本期工资已发___元。", "可以先只写天数。拿不准时，按工资条的本期应发与已发核对。"),
+        ("Paid days this month", "How many payable days did this period cover, and how much was already paid?", "This period included ___ payable days and ___ yuan already paid.", "Start with the paid days on your payslip or time records."),
+    ),
+    "effective_date": (
+        ("合同哪天正式解除", "你说月中离开，也提到月底收到通知。公司实际从哪天解除合同？", "我最后工作至___，解除生效日期为___年___月___日。", "可以核对解除通知、工资结算或社保停缴记录。"),
+        ("Effective termination date", "You describe leaving mid-month and being notified at month-end. When did the termination take effect?", "My last work day was ___. The termination took effect on ___.", "Check the notice or payroll records."),
+    ),
+    "injury_recognition": (
+        ("工伤认定到了哪一步", "事故是在工作中发生的吗？工伤认定是尚未申请、已提交，还是已经拿到决定书？", "我于___在___受伤，工伤认定目前___。", "可先留存事故记录、病历和申请回执。"),
+        ("Work injury decision", "Was the injury work-related, and have you applied for or received a decision?", "I was injured on ___ at ___. The work-injury application is ___.", "Keep the accident report, medical records and application receipt."),
+    ),
     "overtime_hours": (
         ("哪天多干了几小时", "是平时下班后、周末，还是法定节假日？大概多干了多久？", "___期间，工作日延时加班合计___小时、休息日加班合计___小时、法定节假日加班合计___小时。", "先挑一周的排班表或打卡记录举例。"),
         ("When and how long?", "Was it after work, on rest days, or on public holidays? How much extra time roughly?", "For ___, I worked ___ extra workday hours, ___ rest-day hours, and ___ holiday hours.", "Start with one week of schedules or clock records."),
@@ -74,6 +86,8 @@ PROMPTS = {
 
 def prompts_for_case(report: dict, lang: str) -> list[tuple[str, str, str, str, str]]:
     idx = int(lang != "zh")
+    if report.get("issue_review"):
+        return [(key, *PROMPTS[key][idx]) for key in report["issue_review"]["prompts"][:3]]
     stage = report.get("staged_review")
     if stage:
         return [

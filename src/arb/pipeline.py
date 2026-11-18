@@ -25,12 +25,14 @@ from typing import Any
 from . import city as city_store
 from . import laws, materials as materials_kb, venue as venue_kb, worth as worth_kb
 from .calc import ClaimInput, compute
+from .case_guidance import PROMPTS
 from .case_intake import read_case_facts
 from .deadline import analyze as analyze_deadlines
 from .evidence import score as evidence_score
 from .extract import extract
-from .gates import one_final_award_note, qualify
+from .gates import detect_city, one_final_award_note, qualify
 from .i18n import CLARIFICATION_GUIDES, clarification_prompts, staged_prompts
+from .issue_review import review_issues
 from .map import FIELD_LABELS
 from .reference_cases import recommend
 from .mock_hr import rehearsal
@@ -201,7 +203,14 @@ def analyze(
             clarification = "unpaid_amount"
     scope_assessment = assess_scope(story, verdict, staged_review)
     civil_issue = scope_assessment["kind"] in {"rental", "loan", "consumer", "family"}
-    if (not verdict.in_scope and not clarification) or civil_issue:
+    issue_review = None
+    if not civil_issue and verdict.cause != "red_line" and staged_review is None:
+        issue_review = review_issues(
+            story, fields, ex["evidence"], sources, scope_assessment["causes"],
+            verdict.cause if verdict.redirect else None,
+            fields.get("social_avg_wage") or city_store.social_avg_wage(detect_city(story, city)),
+        )
+    if (not verdict.in_scope and not clarification and not issue_review) or civil_issue:
         return {
             "status": "out_of_scope",
             "story": story,
@@ -228,7 +237,7 @@ def analyze(
         "intake": intake,
         "relative": ex["relative"],
         "gates": gates,
-        "scope": {"cause": verdict.cause, "causes": verdict.causes, "hints": verdict.hints},
+        "scope": {"cause": verdict.cause, "causes": scope_assessment["causes"], "hints": verdict.hints},
         "scope_assessment": scope_assessment,
         "assumptions": assumptions,
     }
@@ -240,6 +249,27 @@ def analyze(
             "blockers": gates["blockers"],
             "questions": [],
             "missing": [],
+        }
+
+    if issue_review:
+        window = issue_review["start_window"]
+        payment = issue_review["pay"]
+        # These fields feed the completeness view. Do not present the generic parser's guesses as facts.
+        if issue_review["dismissal"]:
+            fields["hire_date"] = window[0] if window and window[0] == window[1] and not issue_review["suspect_start"] else None
+            if fields["hire_date"] is None:
+                sources.pop("hire_date", None)
+        if payment:
+            fields["unpaid_wages"] = float(payment["difference"]) if payment["difference"] is not None else None
+            if payment["difference"] is None:
+                sources.pop("unpaid_wages", None)
+        return {
+            **base,
+            "status": "need_more",
+            "issue_review": issue_review,
+            "redirect": verdict.redirect,
+            "questions": [PROMPTS[key][0][1] for key in issue_review["prompts"]],
+            "missing": issue_review["prompts"],
         }
 
     if clarification:

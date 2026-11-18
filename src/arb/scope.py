@@ -146,6 +146,13 @@ RED_LINE_REQUESTS = [
 ]
 
 
+def _labor_causes(story: str) -> list[str]:
+    causes = [name for name, pats in CAUSE_RULES if any(re.search(p, story) for p in pats)]
+    if "unpaid_wage" not in causes and spoken_wage_issue(story):
+        causes.append("unpaid_wage")
+    return causes
+
+
 def judge(story: str, fields: dict | None = None) -> Verdict:
     story = story or ""
     for pat, why, reason, hints in RED_LINE_REQUESTS:
@@ -167,9 +174,7 @@ def judge(story: str, fields: dict | None = None) -> Verdict:
                 hints=[f"办理地点：{item['redirect'].split('。')[0]}", "把材料带齐再去，避免白跑一趟"],
             )
 
-    causes = [name for name, pats in CAUSE_RULES if any(re.search(p, story) for p in pats)]
-    if "unpaid_wage" not in causes and spoken_wage_issue(story):
-        causes.append("unpaid_wage")
+    causes = _labor_causes(story)
     if not causes and fields:
         # 关键词没命中，但能抽出劳动关系要素：不算"超出范围"，只是请求没说清楚
         term = fields.get("termination")
@@ -212,7 +217,7 @@ def assess_scope(story: str, verdict: Verdict, staged_review: dict | None = None
     """Score current scope signals. Eligibility and compensation use separate rules."""
     has_employment = bool(EMPLOYMENT_SIGNAL.search(story))
     other = next((key for key, pattern in OTHER_DISPUTES if re.search(pattern, story)), None)
-    causes = verdict.causes or [name for name, pats in CAUSE_RULES if any(re.search(p, story) for p in pats)]
+    causes = verdict.causes or _labor_causes(story)
     if other and not has_employment:
         return {"score": 5, "kind": other, "causes": []}
     if staged_review is not None:

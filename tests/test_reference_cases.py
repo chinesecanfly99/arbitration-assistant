@@ -33,8 +33,8 @@ def test_report_displays_source_and_distinction_without_changing_amount():
         assert "https://www.court.gov.cn/zixun/xiangqing/472681.html" in rendered
 
 
-def test_out_of_scope_report_does_not_suggest_cases():
+def test_mixed_report_does_not_suggest_cases_before_the_claims_are_known():
     report = analyze("公司没有发工资，还要咨询工伤认定")
-    assert report["status"] == "out_of_scope"
+    assert report["issue_review"]["injury"] and report["issue_review"]["pay"]
     assert "reference_cases" not in report
     assert "类案参考" not in render_page(report)

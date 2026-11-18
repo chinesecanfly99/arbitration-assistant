@@ -11,6 +11,7 @@ from datetime import date
 
 from . import llm
 from .application import render_application, render_notes
+from .issue_review import review_lines_zh
 from .pipeline import analyze
 
 LINE = "─" * 62
@@ -26,7 +27,15 @@ def render_markdown(r: dict) -> str:
     out.append(f"\n**当事人原话**：{r['story']}\n")
 
     if r["status"] == "need_more":
-        out.append("## 现在还不能算，需要您补充：")
+        if r.get("issue_review"):
+            out.append("## 多项争议分开核对")
+            out.extend(f"- {line}" for line in review_lines_zh(r["issue_review"]))
+            if r.get("redirect") and r["issue_review"]["administrative"] != "工伤":
+                out.append(f"- {r['redirect']}")
+            if r["questions"]:
+                out.append("\n## 可核对的问题")
+        else:
+            out.append("## 现在还不能算，需要您补充：")
         for q in r["questions"]:
             out.append(f"- {q}")
         if r.get("relative"):

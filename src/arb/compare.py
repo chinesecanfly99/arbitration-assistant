@@ -16,7 +16,10 @@ from typing import Any
 
 from . import laws, llm
 
-CITE_RE = re.compile(r"《([^》]+)》第\s*([零一二三四五六七八九十百\d]+)\s*条")
+ARTICLE_NUMBER = r"[零一二三四五六七八九十百\d]+"
+ARTICLE_LIST = rf"{ARTICLE_NUMBER}(?:\s*[、，,]\s*(?:第\s*)?{ARTICLE_NUMBER})*"
+CITE_RE = re.compile(rf"《([^》]+)》\s*第\s*({ARTICLE_LIST})\s*条")
+CITE_CONTINUATION = re.compile(rf"\s*(?:[（(][^（）()\n。；;]*[）)])?\s*[、，,]\s*第\s*({ARTICLE_LIST})\s*条")
 
 GENERIC_PROMPT_ZH = (
     "你是通用 AI 助手。请直接根据下面劳动者描述，简明扼要地用 120 字以内回答："
@@ -342,19 +345,26 @@ def audit_reply_citations(text: str) -> dict[str, Any]:
     """用本系统法条库核验中英文法条引用（支持《法规》第X条与 English Art(s). N）。"""
     found: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for m in CITE_RE.finditer(text or ""):
-        law_name, art = m.group(1).strip(), m.group(2).strip()
-        key = (law_name, art)
-        if key in seen:
-            continue
-        seen.add(key)
+    reply = text or ""
+    for m in CITE_RE.finditer(reply):
+        law_name = m.group(1).strip()
         slug = laws.resolve_name(law_name)
-        exists = bool(slug and laws.exists(slug, art))
-        found.append({
-            "cite": f"《{law_name}》第{art}条",
-            "slug": slug,
-            "verified": exists,
-        })
+        references = [m[2]]
+        continuation = CITE_CONTINUATION.match(reply, m.end())
+        while continuation:
+            references.append(continuation[1])
+            continuation = CITE_CONTINUATION.match(reply, continuation.end())
+        for art in re.findall(ARTICLE_NUMBER, " ".join(references)):
+            number = laws.cn_to_int(art)
+            key = (slug or law_name, str(number))
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append({
+                "cite": f"《{law_name}》第{art}条",
+                "slug": slug,
+                "verified": bool(slug and number and laws.exists(slug, str(number))),
+            })
     for m in EN_CITE_RE.finditer(text or ""):
         raw_law = m.group(1).lower()
         slug = ""
@@ -448,7 +458,9 @@ def _build_live_flaws(reply: str, report: dict[str, Any], cite_audit: dict[str, 
             flaws.append("回复未引用《法规》第X条格式条号（无法直接回库核验）")
         elif cite_audit["unverified"] > 0:
             flaws.append(f"存在 {cite_audit['unverified']} 条引用未在本系统 10 部法规库中核实")
-        if report.get("status") == "need_more":
+        if report.get("issue_review"):
+            flaws.append("请逐项核对 AI 使用的入职时间、计薪天数与解除条件。法条存在只说明可以查到条文。")
+        elif report.get("status") == "need_more":
             flaws.append("请对照右侧已识别的事实，核对金额估算是否有对应的工资和支付记录")
         elif report.get("status") in ("out_of_scope", "blocked"):
             flaws.append("本系统已触发受案范围/红线闸门拦截；请对照是否越界作答")
@@ -461,7 +473,9 @@ def _build_live_flaws(reply: str, report: dict[str, Any], cite_audit: dict[str, 
             flaws.append("No structured PRC statute citations detected for automated DB verification")
         elif cite_audit["unverified"] > 0:
             flaws.append(f"{cite_audit['unverified']} cited article(s) could not be verified in the 519-article DB")
-        if report.get("status") == "need_more":
+        if report.get("issue_review"):
+            flaws.append("Check the start date, payable days and grounds for termination used in each estimate. Citation verification checks whether an article exists.")
+        elif report.get("status") == "need_more":
             flaws.append("Check any estimated amount against the pay terms and payment records identified by the assessment")
         elif report.get("status") in ("out_of_scope", "blocked"):
             flaws.append("Rule engine blocked out-of-scope / red-line prompt; check if LLM overstepped")

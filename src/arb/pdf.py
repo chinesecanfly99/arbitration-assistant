@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from .issue_review import review_lines_zh
+
 PAGE_W, PAGE_H = 595, 842
 MARGIN = 50
 FONT = "F1"
@@ -162,7 +164,17 @@ def render_pdf(report: dict) -> bytes:
     d.y -= 14
 
     if report.get("status") == "need_more":
-        d.heading("现在还不能算，需要补充")
+        review = report.get("issue_review")
+        if review:
+            d.heading("多项争议分开核对")
+            for detail in review_lines_zh(review):
+                d.paragraph(detail, 10.5, 4)
+            if report.get("redirect") and review["administrative"] != "工伤":
+                d.paragraph(report["redirect"], 10.5, 4)
+            if report.get("questions"):
+                d.heading("可核对的问题")
+        else:
+            d.heading("现在还不能算，需要补充")
         for q in report.get("questions", []):
             d.paragraph("· " + q, 10.5, 4)
         return build_pdf(d.finish())
