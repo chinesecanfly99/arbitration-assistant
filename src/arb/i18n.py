@@ -1312,3 +1312,19 @@ CLARIFICATION_GUIDES = {
         ),
     },
 }
+
+
+def staged_prompts(review: dict, lang: str) -> list[tuple[str, str, str]]:
+    work = CLARIFICATION_GUIDES["internship_pay"][lang][-1][0]
+    period = (
+        ("核对期间", "请确认欠薪从哪月到哪月。", "核对期间：___年___月到___年___月。")
+        if lang == "zh" else
+        ("Check the period", "Which months does the wage dispute cover?", "Pay period: YYYY-MM to YYYY-MM.")
+    )
+    pay = (
+        ("尚未核对的工资", "还有哪些月份没发或少发？可在初步分析里逐月填写。", "")
+        if lang == "zh" else
+        ("Remaining pay periods", "Which months were unpaid or underpaid? You can check each month in the assessment.", "")
+    )
+    prompts = {"employment": work, "period": period, "pay": pay}
+    return [prompts[gap] for gap in review["gaps"]]

@@ -85,22 +85,32 @@ def test_post_need_more(server):
 def test_post_out_of_scope(server):
     code, html, _ = fetch(server + "/analyze", {"story": "工地摔伤了，算工伤吗"})
     assert code == 200
-    assert "Outside Labor Arbitration Jurisdiction" in html
+    assert "Labor arbitration relevance" in html
+    assert 'value="25" aria-labelledby="scopeTitle"' in html
 
     code_zh, html_zh, _ = fetch(server + "/analyze", {"story": "工地摔伤了，算工伤吗", "lang": "zh"})
     assert code_zh == 200
-    assert "不归劳动仲裁管" in html_zh
+    assert "人社局工伤科" in html_zh
 
 
-def test_staged_pay_has_a_followup_from_both_result_cards(server):
+def test_staged_pay_shows_analysis_before_followups(server):
     story = "我实习后转正，月薪约定和到账不同，工作六个月，老板只发了两个月的工资。"
     _, html, _ = fetch(server + "/analyze", {"story": story, "lang": "zh", "compare": "1"})
-    assert "已识别欠薪线索，请分开核对实习和转正" in html
-    assert "这件事不归劳动仲裁管" not in html
-    assert html.count('href="#caseGuide" data-open-case-guide') == 2
-    assert "逐月工资" in html and "工资和转正证据" in html
-    assert "银行流水" in html
+    assert "实习与转正欠薪初步分析" in html
+    assert "查看初步分析" in html
+    assert 'value="70" aria-labelledby="scopeTitle"' in html
+    assert 'id="caseEvidenceForm"' in html and 'id="casePayForm"' in html
+    assert "核对期间" in html and 'href="#caseGuide" data-open-case-guide' in html
     assert story in html
+
+
+def test_relevance_gives_intake_and_civil_next_steps(server):
+    _, civil, _ = fetch(server + "/analyze", {"story": "房东拖欠退租押金，怎么处理？", "lang": "zh"})
+    assert 'value="5" aria-labelledby="scopeTitle"' in civil
+    assert "保留租约" in civil and "12348" in civil
+    _, mixed, _ = fetch(server + "/analyze", {"story": "公司没有发工资，还要咨询工伤认定。", "lang": "zh"})
+    assert 'value="65" aria-labelledby="scopeTitle"' in mixed
+    assert "人社局工伤科" in mixed and "按月保留工资约定" in mixed
 
 
 def test_application_download(server):

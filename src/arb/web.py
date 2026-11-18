@@ -33,6 +33,7 @@ from .i18n import (
     BURDEN_EN,
     CLARIFICATION_GUIDES,
     case_prompt,
+    staged_prompts,
     t,
     tr_basis,
     tr_chip,
@@ -78,6 +79,28 @@ h1{font-size:21px;margin:0 0 6px;line-height:1.35;letter-spacing:-.2px}
 h2{font-size:15px;margin:0 0 12px;padding-left:10px;border-left:3px solid var(--primary);line-height:1.35;font-weight:700}
 h3{font-size:14.5px;margin:12px 0 4px}
 .sub{color:var(--muted);font-size:13px;margin:0 0 10px}
+.case-findings{display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,.52fr);gap:12px;align-items:start;scroll-margin-top:12px}
+.case-findings>section{min-width:0;overflow-wrap:anywhere}
+.scope-number{font-size:26px;line-height:1.25;color:var(--sapphire)}
+.scope-number small{font-size:15px;color:var(--muted);font-weight:500}
+.scope-meter{display:block;width:100%;height:12px;margin:5px 0 10px;accent-color:var(--primary)}
+.case-findings p:last-child{margin-bottom:0}
+.case-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin:12px 0}
+.case-facts div{padding:8px 10px;border:1px solid var(--border);border-radius:8px}
+.case-facts dt{font-size:13px;color:var(--muted)}
+.case-facts dd{margin:0;font-weight:650}
+.case-conflict{padding:8px 10px;background:#fffbeb;color:#78350f;border-radius:8px}
+.case-pay-wrap{overflow-x:auto;margin:8px 0}
+.case-pay-table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap}
+.case-pay-table th,.case-pay-table td{padding:5px 8px;border-bottom:1px solid var(--border)}
+.case-supplement{margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px}
+.case-supplement summary{cursor:pointer;color:var(--primary);font-weight:650}
+.case-supplement form{margin:8px 0 0}
+.case-entry{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0 0 8px}
+.case-entry label,.case-supplement label{display:block;font-size:13px}
+.case-entry input,.case-supplement select,.case-supplement textarea{display:block;width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font:inherit;background:#fff}
+.case-supplement button{margin-top:8px}
+@media(max-width:720px){.case-findings{grid-template-columns:minmax(0,1fr)}#scopeAssessment{order:-1}}
 
 /* Shell & Sidebar (Harmonized Soft Slate-Mist Frame) */
 .app-shell{display:flex;min-height:100vh}
@@ -346,6 +369,23 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
   }}
 
   storyBox.addEventListener('input', function () {{ storyFeedback.textContent = ''; }});
+  var reviewSubmit = document.getElementById('reviewSubmit');
+  var evidenceForm = document.getElementById('caseEvidenceForm');
+  var payForm = document.getElementById('casePayForm');
+  if (evidenceForm) evidenceForm.addEventListener('submit', function (e) {{
+    e.preventDefault();
+    var note = this.elements.note.value.trim().replace(/\\s+/g, ' ');
+    if (!note) return;
+    appendStory('【补证：' + this.elements.kind.value + '】' + note);
+    form.requestSubmit(reviewSubmit);
+  }});
+  if (payForm) payForm.addEventListener('submit', function (e) {{
+    e.preventDefault();
+    var fields = this.elements;
+    appendStory('【工资核对】' + fields.month.value + ' 应到账 ' +
+      fields.due.valueAsNumber.toFixed(2) + ' 元，实际到账 ' + fields.received.valueAsNumber.toFixed(2) + ' 元。');
+    form.requestSubmit(reviewSubmit);
+  }});
 
   function activateTab(tabId) {{
     document.querySelectorAll('.tab-btn').forEach(function (b) {{
@@ -440,6 +480,7 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     guideDrafts.delete(selectedChip);
     guideAdd.disabled = true;
     appendStory(answer);
+    if (reviewSubmit) form.requestSubmit(reviewSubmit);
   }});
 
   var caseGuide = document.getElementById('caseGuide');
@@ -792,6 +833,9 @@ def chips_html(lang: str = "zh", exclude: tuple[str, ...] = ()) -> str:
 def followup_chips(report: dict | None, lang: str) -> list[str]:
     if not report or report["status"] not in ("ok", "need_more"):
         return []
+    if report.get("staged_review"):
+        prompts = staged_prompts(report["staged_review"], lang)
+        return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
     if report.get("clarification"):
         _, _, _, _, prompts = CLARIFICATION_GUIDES[report["clarification"]][lang]
         return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
@@ -1125,6 +1169,13 @@ def compare_html(
             left = t(lang, "expired") if d["expired"] else t(lang, "days_left", n=d["days_left"])
             out.append(f'<div class="pro-item">✓ {esc(t(lang, "kpi_deadline"))}: {esc(d["deadline"])} ({esc(left)})</div>')
         out.append("</div>")
+    elif report.get("staged_review"):
+        title = "实习与转正欠薪初步分析" if lang == "zh" else "Initial wage assessment"
+        summary = SCOPE_TEXT[report["scope_assessment"]["kind"]][int(lang != "zh")]
+        view = "查看初步分析" if lang == "zh" else "View assessment"
+        out.append(f'<div class="hero-total" style="color:#92400e">{title}</div>')
+        out.append(f'<div class="cmp-reply">{esc(summary)}</div>')
+        out.append(f'<p><a class="export-btn" href="#caseProgress">{view}</a></p>')
     elif status == "need_more":
         if report.get("clarification"):
             title, reason, _, _, prompts = CLARIFICATION_GUIDES[report["clarification"]][lang]
@@ -1138,10 +1189,14 @@ def compare_html(
             f'<p><a class="export-btn" href="#caseGuide" data-open-case-guide>{esc(t(lang, "guide_continue"))}</a></p>'
         )
     elif status == "out_of_scope":
-        out.append(f'<div class="hero-total" style="color:#d97706">{esc(t(lang, "out_scope_title"))}</div>')
-        reason, redir, _ = tr_scope_out(lang, report)
-        out.append(f'<div class="cmp-reply">{esc(redir or reason)}</div>')
-        out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "out_scope_where"))}</div></div>')
+        title = "查看处理方向" if lang == "zh" else "See your options"
+        kind = report["scope_assessment"]["kind"]
+        if report.get("redirect") or report["scope"]["cause"] == "red_line":
+            _, summary, _ = tr_scope_out(lang, report)
+        else:
+            summary = SCOPE_TEXT[kind][int(lang != "zh")]
+        out.append(f'<div class="cmp-reply">{esc(summary)}</div>')
+        out.append(f'<p><a class="export-btn" href="#caseProgress">{title}</a></p>')
     else:
         out.append(f'<div class="hero-total" style="color:#e11d48">{esc(t(lang, "blocked_title"))}</div>')
         out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + b for b in report.get("blockers") or []))}</div>')
@@ -1158,6 +1213,13 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
     suggested = followup_chips(report, lang)
     guide_open = " open" if suggested else ""
     guide_intro = "guide_followup" if suggested else "guide_intro"
+    guide_copy = t(lang, guide_intro)
+    staged = bool(report and report.get("staged_review"))
+    if staged and suggested:
+        guide_copy = (
+            "已有信息已用于初步分析。选一个问题补充，提交后会更新结果。"
+            if lang == "zh" else "Your initial assessment is ready. Answer a question to update it."
+        )
     excluded = () if suggested else QUICK_TOPICS
     quick_chips = suggested or [topic_chip(BY_TERM[term], lang) for term in QUICK_TOPICS]
     cfg = llm.config()
@@ -1190,6 +1252,8 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         '</div><div class="tool-right">',
         f'<label class="switch"><input type="checkbox" id="compareCheck" name="compare" value="1" {checked}> {esc(t(lang, "compare_toggle"))}</label>',
         f'<button type="submit" class="btn-primary">{esc(btn_text)}</button>',
+        ('<button type="submit" id="reviewSubmit" name="review_update" value="1" '
+         'formaction="/analyze#caseProgress" hidden></button>') if staged else "",
         "</div></div>",
         '<section class="input-review voice-panel" id="voicePanel" hidden>',
         '<p class="voice-tip" id="voiceTip" role="status"></p>',
@@ -1214,7 +1278,7 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         f'<span class="guide-open" aria-hidden="true">{esc(t(lang, "guide_open"))} ▾</span>'
         f'<span class="guide-close" aria-hidden="true">{esc(t(lang, "guide_close"))} ▴</span></summary>',
         '<div class="guide-body" id="chipsDrawer">',
-        f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, guide_intro))}</p>',
+        f'<p class="sub" style="margin:0 0 6px">{esc(guide_copy)}</p>',
         f'<div class="chips" id="guideSuggestions">{"".join(quick_chips)}</div>',
         '<section class="input-review" id="guidePrompt" tabindex="-1" aria-labelledby="guideTopic" '
         'aria-describedby="guideQuestion" hidden>',
@@ -1237,6 +1301,197 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
     return "".join(out)
 
 
+SCOPE_TEXT = {
+    "staged": ("已出现转正和欠薪线索。转正后的岗位和管理方式会影响劳动关系判断。",
+               "The account describes conversion to a regular role and possible unpaid wages. Duties and supervision matter."),
+    "staged_supported": ("已登记转正时间和用工或考勤材料，劳动关系判断有了可核对的线索。",
+                         "A conversion date and records of employment or attendance give you facts to check."),
+    "labor": ("描述中有可进一步核对的劳动争议事项。具体受理仍取决于事实、请求和管辖。",
+              "The description identifies a potential labor dispute. Filing depends on the facts, requested remedy and jurisdiction."),
+    "mixed": ("有可单独核对的劳动争议，也有适合走行政渠道的事项，可分开处理。",
+              "The account identifies a possible labor claim and a separate issue for an administrative agency."),
+    "administrative": ("这件事与用工有关，当前请求优先向相应主管部门核实。",
+                       "The issue is work-related. Check the request with the relevant agency first."),
+    "unclear": ("看到了用工线索。可先整理谁安排工作、约定了什么、发生了什么，以及希望对方怎么处理。",
+                "There are signs of a work arrangement. Note who assigned the work, what was agreed, what happened and what remedy you want."),
+    "unidentified": ("当前描述尚未出现可识别的劳动争议事项。如果已经发生纠纷，可保留原始记录，并拨 12348 咨询处理途径。",
+                     "The account does not identify a labor dispute. If a dispute has arisen, keep the original records and ask 12348 which route applies."),
+    "rental": ("描述更接近租赁纠纷。保留租约、付款和交接记录，书面列明退款或履约请求；可通过 12348 咨询调解或民事处理。",
+               "This looks like a rental dispute. Keep the lease, payment and handover records, state your request in writing and ask 12348 about civil options."),
+    "loan": ("描述更接近借款纠纷。保存借条、转账和还款约定，书面核对余额和到期时间；可通过 12348 咨询催讨或调解渠道。",
+             "This looks like a loan dispute. Keep the loan and transfer records, confirm the balance and due date in writing and ask 12348 about civil options."),
+    "consumer": ("描述更接近消费纠纷。保存订单、商品页面及沟通记录，先向商家或平台提出退款或履约请求；有争议可向 12315 咨询。",
+                 "This looks like a consumer dispute. Keep the order, listing and messages, contact the seller or platform and ask 12315 if it remains unresolved."),
+    "family": ("描述更接近婚姻家庭或继承纠纷。整理关系、财产和相关书面记录，可向 12348 咨询适用的调解或民事途径。",
+               "This looks like a family or inheritance dispute. Gather the relevant relationship and property records and ask 12348 about mediation or civil options."),
+}
+
+CLAIM_STEPS = {
+    "unpaid_wage": ("欠薪或少发工资。按月保留工资约定、工资条和流水，可向劳动监察或劳动仲裁机构核实。",
+                    "Unpaid or underpaid wages. Keep pay agreements, payslips and bank records by month. Ask labor inspection or the arbitration office."),
+    "illegal_dismissal": ("辞退争议。保存解除通知、聊天记录和最后工作日期，核对解除理由及通知时间。",
+                          "Dismissal. Keep the notice and messages, record your last work day and confirm when and why you were dismissed."),
+    "double_wage": ("书面劳动合同争议。保存入职记录和合同签署或补签时间。",
+                    "Written employment contract. Keep records of when work started and when a contract was signed."),
+    "overtime": ("加班争议。保留排班、打卡及公司安排加班的原始记录，按日期整理。",
+                 "Overtime. Keep schedules, time records and employer instructions, organized by date."),
+    "annual_leave": ("年休假争议。核对有权享受的假期、申请记录和已休天数。",
+                     "Annual leave. Check leave entitlement, requests and the days actually taken."),
+    "injury_benefits": ("已提到工伤认定材料。可凭认定决定、费用票据和待遇核定单，向人社部门或当地劳动仲裁机构核实由谁支付，以及待遇争议的处理渠道。",
+                        "You mention a recognized work injury. Bring the decision, bills and benefits statement to the labor authority or arbitration office to check who pays and how to resolve a benefits dispute."),
+    "severance": ("经济补偿争议。核对劳动关系何时、因何结束，保留合同及工资记录。",
+                  "Severance. Record when and why employment ended, and keep the contract and pay records."),
+    "pregnant_protection": ("孕产期用工争议。保存相关证明与单位调整岗位、待遇或解除的记录。",
+                            "Maternity-related employment dispute. Keep supporting records and any notice of a change to duties, pay or employment."),
+    "mutual_agreement": ("协商协议争议。保留协议版本、沟通记录及实际履行情况。",
+                         "Settlement dispute. Keep the agreement versions, messages and proof of performance."),
+}
+
+
+def scope_panel(report: dict, lang: str) -> str:
+    assessment = report["scope_assessment"]
+    idx = int(lang != "zh")
+    title = ("劳动仲裁相关度", "Labor arbitration relevance")[idx]
+    note = ("按当前描述和已登记材料给出的参考分。是否受理由办理机构判断。",
+            "Rule-based estimate from this account and its listed records. The relevant office decides whether to accept a filing.")[idx]
+    score = assessment["score"]
+    explanation = SCOPE_TEXT[assessment["kind"]][idx]
+    if assessment["kind"] in ("unclear", "unidentified", "rental", "loan", "consumer", "family"):
+        explanation = (
+            ("已有用工线索，争议事项待明确。", "The account suggests employment. The dispute still needs to be identified.")[idx]
+            if assessment["kind"] == "unclear" else
+            ("现有描述里的劳动争议信号较少。", "The account contains few signs of a labor dispute.")[idx]
+        )
+    return (
+        f'<section class="card" id="scopeAssessment" aria-labelledby="scopeTitle"><h2 id="scopeTitle">{title}</h2>'
+        f'<strong class="scope-number">{score}<small> / 100</small></strong>'
+        f'<meter class="scope-meter" min="0" max="100" value="{score}" aria-labelledby="scopeTitle"></meter>'
+        f'<p>{esc(explanation)}</p><p class="sub">{note}</p></section>'
+    )
+
+
+def first_steps_panel(report: dict, lang: str) -> str:
+    idx = int(lang != "zh")
+    assessment = report["scope_assessment"]
+    kind = assessment["kind"]
+    status = report["status"]
+    title = ("你现在可以做什么", "What you can do now")[idx]
+    out = [f'<section class="card"><h1>{title}</h1>']
+    if report.get("redirect") or report.get("scope", {}).get("cause") == "red_line":
+        _, redirect, _ = tr_scope_out(lang, report)
+        out.append(f'<p>{esc(redirect)}</p>')
+    for cause in assessment["causes"]:
+        if cause in CLAIM_STEPS:
+            out.append(f'<p>{esc(CLAIM_STEPS[cause][idx])}</p>')
+    if kind == "labor" and not assessment["causes"]:
+        out.append(
+            '<p>保留劳动合同、工资和考勤记录，写清争议发生的时间和希望解决的问题，可向当地劳动仲裁机构咨询。</p>'
+            if not idx else
+            '<p>Keep employment, pay and attendance records. Write down what happened, when and what you want the local arbitration office to resolve.</p>'
+        )
+    if kind in ("unclear", "unidentified", "rental", "loan", "consumer", "family"):
+        out.append(f'<p>{esc(SCOPE_TEXT[kind][idx])}</p>')
+    if status == "ok":
+        out.append(f'<p><a href="#caseCalculation">{("查看金额测算", "View the calculation")[idx]}</a></p>')
+    out.append("</section>")
+    return "".join(out)
+
+
+def staged_panel(review: dict, lang: str, print_mode: bool) -> str:
+    def label(zh: str, en: str) -> str:
+        return zh if lang == "zh" else en
+
+    def fact_money(value) -> str | None:
+        return f"¥{_money(value)}" if value is not None else None
+
+    evidence = review["evidence"]
+    month_names = "、".join(review["paid_months"])
+    paid_count = review["paid_count"]
+    facts = [
+        (label("开始实习", "Internship began"), review["internship"]),
+        (label("转正时间", "Regular role began"), review["conversion"]),
+        (label("口述约定月薪", "Stated monthly pay"), fact_money(review["agreed"])),
+        (label("口述扣款后到账", "Stated net pay"), fact_money(review["net"])),
+        (label("口述已发工资", "Reported paid months"), month_names or (
+            label(f"{paid_count} 个月", f"{paid_count} months") if paid_count else None
+        )),
+    ]
+    out = [
+        f'<section class="card" aria-labelledby="stagedHeading"><h1 id="stagedHeading">{label("实习与转正欠薪初步分析", "Initial wage assessment")}</h1>'
+        f'<p>{label("你描述了转正及部分工资未付。若转正后实际按公司安排从事有报酬的工作，可向当地劳动仲裁机构核实劳动关系及欠薪。实习阶段如属学校安排，先看实习协议里的报酬约定，可拨 12348 咨询。", "You describe a move to a regular role and unpaid wages. If you performed paid work under the company’s supervision, ask the local arbitration office about employment status and wages. For a school-arranged internship, start with its agreement and ask 12348.")}</p>',
+    ]
+    if any(value for _, value in facts):
+        out.append('<dl class="case-facts">')
+        out.extend(f'<div><dt>{name}</dt><dd>{esc(value)}</dd></div>' for name, value in facts if value)
+        out.append("</dl>")
+    if review["agreed"] is not None and review["net"] is not None:
+        out.append(f'<p>{label("把约定工资、工资条扣款和银行到账分开核对。约定月薪与扣款后到账金额的差额，需要先核对计薪口径。", "Check the agreed pay, payroll deductions and deposits separately before interpreting the difference.")}</p>')
+    if review["reversed_dates"]:
+        first, last = review["first"], review["last"]
+        conflict = label(f"你描述的 {first} 到 {last} 顺序有冲突。请核对结束年份，确认前可先核对具体月份。",
+                         f"The end of {first} to {last} comes before the start. Check the end year. You can still review individual months.")
+        out.append(f'<p class="case-conflict" id="caseDateConflict">{esc(conflict)}</p>')
+    elif review["first"] and review["last"]:
+        out.append(f'<p id="casePayPeriod">{label("已登记的工资核对期间", "Recorded pay period")} <strong>{esc(review["first"])} – {esc(review["last"])}</strong></p>')
+    if review["payment_conflict"]:
+        out.append(f'<p class="case-conflict">{label("已发工资的月份与月数或核对期间有出入，请核对。", "The paid months conflict with the stated count or pay period. Please check them.")}</p>')
+    if review["unreviewed"]:
+        remaining = "、".join(review["unreviewed"])
+        out.append(f'<p id="caseUnreviewed">{label("可优先核对这些月份的到账记录", "Check payments for these months first")} <strong>{esc(remaining)}</strong></p>')
+
+    if review["monthly"]:
+        out.append(
+            f'<h2>{label("已核对月份的到账差额", "Payment shortfall for entered months")} '
+            f'<strong id="caseDifference">¥{_money(review["difference"])}</strong></h2>'
+            '<div class="case-pay-wrap"><table class="case-pay-table"><thead><tr>'
+            f'<th scope="col">{label("月份", "Month")}</th><th scope="col">{label("应到账", "Net due")}</th>'
+            f'<th scope="col">{label("实际到账", "Received")}</th><th scope="col">{label("差额", "Shortfall")}</th>'
+            '</tr></thead><tbody>'
+        )
+        for month, row in review["monthly"].items():
+            out.append(f'<tr><th scope="row">{esc(month)}</th><td>¥{_money(row["due"])}</td><td>¥{_money(row["received"])}</td><td>¥{_money(row["difference"])}</td></tr>')
+        out.append(f'</tbody></table></div><p class="sub">{label("仅合计你填写的月份，实际主张金额仍需核对工资和用工材料。同月再次提交会更新该月。", "This total covers entered months. Check pay and employment records before claiming an amount. Re-enter a month to update it.")}</p>')
+
+    evidence_labels = {
+        "用工": label("劳动合同或转正通知", "Employment contract or conversion notice"),
+        "工资约定": label("工资条或薪资约定", "Payslip or pay agreement"),
+        "付款": label("银行流水或转账记录", "Bank or transfer record"),
+        "考勤": label("排班或考勤记录", "Schedule or attendance"),
+    }
+    if evidence:
+        changes = {
+            "用工": label("可用来核对转正日期和用工约定。", "Use these to check conversion dates and employment terms."),
+            "工资约定": label("可用来核对计薪标准、应发工资和扣款。", "Use these to check agreed pay, gross amounts and deductions."),
+            "付款": label("可用来核对每月实际到账和欠付差额。", "Use these to check monthly deposits and any shortfall."),
+            "考勤": label("可用来核对哪些月份实际工作及单位如何管理。", "Use these to check when and under whose supervision you worked."),
+        }
+        out.append(f'<h2 id="caseEvidence">{label("已登记的证据线索", "Evidence noted")}</h2>')
+        for kind, notes in evidence.items():
+            out.append(f'<h3>{evidence_labels[kind]}</h3><ul>')
+            out.extend(f'<li>{esc(note)}</li>' for note in notes)
+            out.append(f'</ul><p class="sub">{changes[kind]}</p>')
+    if not print_mode:
+        out.append(f'<details class="case-supplement"><summary>{label("补充证据", "Add evidence")}</summary>'
+                   f'<form id="caseEvidenceForm"><label>{label("证据类型", "Record type")}<select name="kind">')
+        out.extend(f'<option value="{kind}">{name}</option>' for kind, name in evidence_labels.items())
+        out.append(
+            f'</select></label><label>{label("材料能说明什么（可写日期或金额）", "What does the record show? Include a date or amount if known.")}'
+            '<textarea name="note" rows="2" maxlength="400" required></textarea></label>'
+            f'<button class="btn-primary" type="submit">{label("登记证据并更新分析", "Save evidence and update")}</button></form></details>'
+            f'<details class="case-supplement"><summary>{label("核对某月工资", "Check a month of pay")}</summary>'
+            '<form id="casePayForm"><div class="case-entry">'
+            f'<label>{label("工资月份", "Pay month")}<input name="month" type="month" min="2000-01" max="2099-12" required></label>'
+            f'<label>{label("应到账（元）", "Net due (RMB)")}<input name="due" type="number" min="0" max="99999999.99" step="0.01" required></label>'
+            f'<label>{label("实际到账（元）", "Received (RMB)")}<input name="received" type="number" min="0" max="99999999.99" step="0.01" required></label>'
+            f'</div><p class="sub">{label("按扣款后的同一口径填写，确实没收到时填 0。", "Use amounts after deductions for both fields. Enter 0 if you received nothing.")}</p>'
+            f'<button class="btn-primary" type="submit">{label("更新该月差额", "Update this month")}</button></form></details>'
+        )
+        if review["gaps"]:
+            out.append(f'<p><a id="continueGuide" class="export-btn" href="#caseGuide" data-open-case-guide>{esc(t(lang, "guide_continue"))}</a></p>')
+    out.append("</section>")
+    return "".join(out)
+
+
 def render_page(
     report: dict | None = None,
     story: str = "",
@@ -1247,9 +1502,11 @@ def render_page(
     lang: str = "zh",
     rule_ms: int = 4,
     async_compare: dict | None = None,
+    review_only: bool = False,
 ) -> str:
     body: list[str] = []
     cfg = llm.config()
+    display_compare = show_compare and not print_mode and not review_only
 
     if not print_mode:
         body.append('<div class="app-shell">')
@@ -1277,6 +1534,13 @@ def render_page(
             body.append(f'<div class="card ask">⚠️ {esc(error)}</div>')
         body.append(input_console_html(story=story, show_compare=show_compare, report=report, lang=lang))
 
+    if report is not None:
+        initial = (
+            staged_panel(report["staged_review"], lang, print_mode)
+            if report.get("staged_review") else first_steps_panel(report, lang)
+        )
+        body.append(f'<div class="case-findings" id="caseProgress">{initial}{scope_panel(report, lang)}</div>')
+
     if report is None:
         body.append(
             '<div class="two-col">'
@@ -1300,25 +1564,15 @@ def render_page(
             "</div></div>"
         )
     elif report["status"] == "out_of_scope":
-        if show_compare and not print_mode:
+        if display_compare:
             body.append(compare_html(
                 report, compare_data, lang=lang, rule_ms=rule_ms,
                 async_pending=bool((async_compare or {}).get("pending")),
                 model_name=(cfg or {}).get("model", "deepseek-chat"),
             ))
-        reason, redir, hints_list = tr_scope_out(lang, report)
-        body.append(
-            f'<div class="card"><h1>{esc(t(lang, "out_scope_title"))}</h1>'
-            f'<p class="sub">{esc(reason)}</p>'
-            f'<h2>{esc(t(lang, "out_scope_where"))}</h2>'
-            f'<p>{esc(redir)}</p>'
-        )
-        for h in hints_list:
-            body.append(f'<p style="margin:4px 0">· {esc(h)}</p>')
-        body.append("</div>")
         body.append(pending_html(report.get("pending") or [], story, lang=lang))
     elif report["status"] == "blocked":
-        if show_compare and not print_mode:
+        if display_compare:
             body.append(compare_html(
                 report, compare_data, lang=lang, rule_ms=rule_ms,
                 async_pending=bool((async_compare or {}).get("pending")),
@@ -1333,14 +1587,14 @@ def render_page(
         body.append("</div>")
         body.append(gates_html(report.get("gates"), lang=lang))
     elif report["status"] == "need_more":
-        if show_compare and not print_mode:
+        if display_compare:
             body.append(compare_html(
                 report, compare_data, lang=lang, rule_ms=rule_ms,
                 async_pending=bool((async_compare or {}).get("pending")),
                 model_name=(cfg or {}).get("model", "deepseek-chat"),
             ))
         clarification = report.get("clarification")
-        if clarification:
+        if not report.get("staged_review") and clarification:
             title, reason, records, next_steps, prompts = CLARIFICATION_GUIDES[clarification][lang]
             questions = [question for _, question, _ in prompts]
             body.append(f'<div class="card ask"><h1>{esc(title)}</h1><p>{esc(reason)}</p>')
@@ -1348,29 +1602,31 @@ def render_page(
                 body.append(f'<p>{esc(records)}</p>')
             if next_steps:
                 body.append(f'<p>{esc(next_steps)}</p>')
-        else:
+        elif not report.get("staged_review"):
             questions = [tr_question(lang, q) for q in report["questions"]]
             body.append(
                 f'<div class="card ask"><h1>{esc(t(lang, "need_more_title"))}</h1>'
                 f'<p>{esc(t(lang, "need_more_sub"))}</p>'
             )
-        if print_mode:
+        if not report.get("staged_review") and print_mode:
             for q in questions:
                 body.append(f'<p style="margin:4px 0">· {esc(q)}</p>')
-        else:
+        elif not report.get("staged_review"):
             body.append(
                 f'<p><a id="continueGuide" class="export-btn" href="#caseGuide" data-open-case-guide>'
                 f'{esc(t(lang, "guide_continue"))}</a></p>'
             )
-        if lang == "zh":
-            for x in report.get("relative") or []:
-                body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
-        body.append("</div>")
+        if not report.get("staged_review"):
+            if lang == "zh":
+                for x in report.get("relative") or []:
+                    body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
+            body.append("</div>")
         if not clarification:
             body.append(map_html(report.get("fields") or {}, lang=lang))
         body.append(gates_html(report.get("gates"), lang=lang))
         body.append(pending_html(report.get("pending") or [], story, lang=lang))
     else:
+        body.append('<div id="caseCalculation"></div>')
         worth = report.get("worth") or {}
         cites = [c for it in report["items"] for c in it.get("cite_texts", [])]
         verified_n = sum(1 for it in report["items"] if it["cite_ok"])
@@ -1404,7 +1660,7 @@ def render_page(
 
         # TAB 1: Overview & AI Compare
         body.append('<div class="tab-panel active" id="tab-overview">')
-        if show_compare and not print_mode:
+        if display_compare:
             body.append(compare_html(
                 report, compare_data, lang=lang, rule_ms=rule_ms,
                 async_pending=bool((async_compare or {}).get("pending")),
@@ -1635,6 +1891,7 @@ class Handler(BaseHTTPRequestHandler):
         confirmed = p.get("confirm", [])
         lang = "zh" if p.get("lang", ["en"])[0] == "zh" else "en"
         show_compare = p.get("compare", ["0"])[0] == "1"
+        review_only = p.get("review_update", ["0"])[0] == "1"
         api_key = p.get("api_key", [""])[0]
         base_url = p.get("base_url", [""])[0]
         model = p.get("model", [""])[0]
@@ -1655,12 +1912,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             r, cmp_data, rule_ms, async_cmp = self._run_with_compare(
-                story, confirmed, show_compare, lang,
+                story, confirmed, show_compare and not review_only, lang,
                 api_key=api_key, base_url=base_url, model=model,
             )
             self._send(200, render_page(
                 r, story, compare_data=cmp_data, show_compare=show_compare,
-                lang=lang, rule_ms=rule_ms, async_compare=async_cmp,
+                lang=lang, rule_ms=rule_ms, async_compare=async_cmp, review_only=review_only,
             ))
         except Exception as e:
             self._send(500, render_page(error=f"Error: {e}", story=story, show_compare=show_compare, lang=lang))

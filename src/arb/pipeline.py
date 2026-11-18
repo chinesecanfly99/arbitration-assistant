@@ -29,11 +29,12 @@ from .deadline import analyze as analyze_deadlines
 from .evidence import score as evidence_score
 from .extract import extract
 from .gates import one_final_award_note, qualify
-from .i18n import CLARIFICATION_GUIDES
+from .i18n import CLARIFICATION_GUIDES, staged_prompts
 from .map import FIELD_LABELS
 from .reference_cases import recommend
 from .mock_hr import rehearsal
-from .scope import STUDENT_WORK, WORK_TRANSITION, judge
+from .scope import STUDENT_WORK, WORK_TRANSITION, assess_scope, judge
+from .staged_pay import review_staged_pay
 
 # 这些字段的 None 表示"用户没说"，不能直接喂给 ClaimInput（None 会顶掉默认值，
 # 例如 has_written_contract=None 会让二倍工资被误触发）。缺失时用规则的默认值。
@@ -165,14 +166,18 @@ def analyze(
             assumptions.append("未说明离职日期，暂按今天计（工龄会算多，务必确认）")
 
     verdict = judge(story, fields)
+    staged_review = None
     clarification = None
     if verdict.cause == "unknown":
         clarification = "unclear_issue"
     elif "unpaid_wage" in verdict.causes and STUDENT_WORK.search(story) and WORK_TRANSITION.search(story):
         clarification = "internship_pay"
+        staged_review = review_staged_pay(story)
     elif verdict.causes == ["unpaid_wage"] and not fields.get("unpaid_wages"):
         clarification = "unpaid_amount"
-    if not verdict.in_scope and not clarification:
+    scope_assessment = assess_scope(story, verdict, staged_review)
+    civil_issue = scope_assessment["kind"] in {"rental", "loan", "consumer", "family"}
+    if (not verdict.in_scope and not clarification) or civil_issue:
         return {
             "status": "out_of_scope",
             "story": story,
@@ -182,6 +187,7 @@ def analyze(
             "scope": {"cause": verdict.cause, "reason": verdict.refusal_reason},
             "redirect": verdict.redirect,
             "hints": verdict.hints,
+            "scope_assessment": scope_assessment,
         }
 
     # ---------- 三层闸门：能不能进门 ----------
@@ -196,10 +202,11 @@ def analyze(
         "relative": ex["relative"],
         "gates": gates,
         "scope": {"cause": verdict.cause, "causes": verdict.causes, "hints": verdict.hints},
+        "scope_assessment": scope_assessment,
         "assumptions": assumptions,
     }
 
-    if gates and gates["blockers"]:
+    if gates and gates["blockers"] and staged_review is None:
         return {
             **base,
             "status": "blocked",
@@ -210,6 +217,8 @@ def analyze(
 
     if clarification:
         _, reason, _, _, prompts = CLARIFICATION_GUIDES[clarification]["zh"]
+        if staged_review is not None:
+            prompts = staged_prompts(staged_review, "zh")
         return {
             **base,
             "status": "need_more",
@@ -218,6 +227,7 @@ def analyze(
             "scope": {**base["scope"], "reason": reason},
             "questions": [question for _, question, _ in prompts],
             "missing": [],
+            **({"staged_review": staged_review} if staged_review is not None else {}),
         }
 
     missing = [k for k in REQUIRED if fields.get(k) is None]

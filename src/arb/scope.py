@@ -28,7 +28,11 @@ OUT_OF_SCOPE = [
     },
     {
         "key": "公积金",
-        "patterns": [r"公积金", r"(?i)\bhousing\s+fund\b"],
+        "patterns": [
+            r"公积金.{0,14}(?:没交|未交|未缴|少交|少缴|欠缴|补缴|断缴|投诉|提取)",
+            r"(?:没|未|不).{0,6}(?:交|缴).{0,6}公积金|(?:补缴|提取|少缴|欠缴).{0,8}公积金",
+            r"(?i)\bhousing\s+fund\b",
+        ],
         "redirect": "住房公积金不属于仲裁受理范围，去公积金管理中心投诉（行政路径）。带：劳动合同、工资流水。",
     },
 ]
@@ -48,7 +52,7 @@ CAUSE_RULES = [
     ("overtime", [r"加班", r"周末上班", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班", r"(?i)\bovertime\b"]),
     ("annual_leave", [r"年假", r"年休假", r"(?i)\bannual\s+leave\b"]),
     ("unpaid_wage", [
-        r"拖欠|欠.{0,12}工资|没发工资|工资.{0,6}(?:没发|没结|没给|欠着|未发|未结)|扣工资|克扣",
+        r"拖欠|欠.{0,12}工资|没(?:有)?发工资|工资.{0,6}(?:没发|没结|没给|欠着|未发|未结|少发|少给|少算)|扣工资|克扣",
         r"(?:只|仅)(?:发|给|支付)(?:了|过)?\s*[零一二两三四五六七八九十\d]+\s*个?月(?:份)?的?工资",
         r"(?i)\bunpaid\s+(?:wage|wages|salary)\b"
         r"|\b(?:only\s+paid|paid\s+for\s+only)\b[^.!?\n]{0,24}\bmonths?\b",
@@ -65,6 +69,22 @@ STUDENT_WORK = re.compile(r"实习|在校(?:生|学生)?|大[一二三四]|(?i:\
 WORK_TRANSITION = re.compile(
     r"转正|转为正式员工|转为全职|毕业后.{0,10}(?:留用|继续工作)"
     r"|(?i:\b(?:converted|transitioned|moved)\s+to\s+full[- ]time\b|\bbecame\s+a\s+full[- ]time\s+employee\b)"
+)
+
+EMPLOYMENT_SIGNAL = re.compile(
+    r"入职|在职|劳动合同|劳动关系|用人单位|员工|上班|工资|薪资|考勤|打卡|排班|转正|辞退|加班"
+    r"|和单位.{0,5}(?:纠纷|争议)|公司.{0,8}(?:调岗|降薪|安排.{0,4}工作)"
+    r"|(?i:\bemploy(?:ee|er|ment)\b|\bpayroll\b|\bwages?\b|\bsalary\b|\bovertime\b)"
+)
+OTHER_DISPUTES = (
+    ("rental", r"房东|租客|租房|房屋租赁|退租|租金|租赁押金|(?i:\blandlord\b|\btenant\b)"),
+    ("loan", r"借款|欠条|借条|还钱|借钱|(?i:\bborrowed\b|\bloan\b)"),
+    ("consumer", r"网购|消费者|商家.{0,12}(?:退款|退货)|购物.{0,8}退款|(?i:\bonline purchase\b|\bmerchant\b)"),
+    ("family", r"离婚|抚养费|继承纠纷|遗产|(?i:\bdivorce\b|\binheritance\b)"),
+)
+WORK_DISPUTE = re.compile(
+    r"确认劳动关系|劳动合同.{0,10}(?:争议|纠纷|变更|终止|解除)|工资.{0,6}(?:少发|少给|少算)"
+    r"|(?i:\bemployment status dispute\b|\bunderpaid\b)"
 )
 
 
@@ -182,3 +202,29 @@ def judge(story: str, fields: dict | None = None) -> Verdict:
         causes=causes,
         hints=hints + [f"受理机关：{DEPARTMENT}；仲裁不收费，受理后 45 日内审结（复杂可延 15 日）"],
     )
+
+
+def assess_scope(story: str, verdict: Verdict, staged_review: dict | None = None) -> dict:
+    """Score current scope signals. Eligibility and compensation use separate rules."""
+    has_employment = bool(EMPLOYMENT_SIGNAL.search(story))
+    other = next((key for key, pattern in OTHER_DISPUTES if re.search(pattern, story)), None)
+    causes = verdict.causes or [name for name, pats in CAUSE_RULES if any(re.search(p, story) for p in pats)]
+    if other and not has_employment:
+        return {"score": 5, "kind": other, "causes": []}
+    if staged_review is not None:
+        evidence = staged_review["evidence"]
+        supported = bool(staged_review["conversion"] and (evidence.get("用工") or evidence.get("考勤")))
+        return {"score": 75 if supported else 70, "kind": "staged_supported" if supported else "staged", "causes": causes}
+    if verdict.redirect:
+        # These issues need administrative directions. Show separate, identifiable labor claims as well.
+        labor_causes = [cause for cause in causes if cause not in ("mutual_agreement", "pregnant_protection")]
+        if verdict.cause == "工伤" and re.search(r"已认定.{0,5}工伤|认定为工伤|工伤认定书", story):
+            labor_causes.append("injury_benefits")
+        return {"score": 65 if labor_causes else 25, "kind": "mixed" if labor_causes else "administrative", "causes": labor_causes}
+    if verdict.in_scope or WORK_DISPUTE.search(story):
+        return {"score": 85 if has_employment else 70, "kind": "labor", "causes": causes}
+    if verdict.cause == "red_line" and causes and has_employment:
+        return {"score": 70, "kind": "labor", "causes": causes}
+    if has_employment or STUDENT_WORK.search(story):
+        return {"score": 40, "kind": "unclear", "causes": []}
+    return {"score": 10, "kind": other or "unidentified", "causes": []}

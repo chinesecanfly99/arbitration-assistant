@@ -449,7 +449,7 @@ def _build_live_flaws(reply: str, report: dict[str, Any], cite_audit: dict[str, 
         elif cite_audit["unverified"] > 0:
             flaws.append(f"存在 {cite_audit['unverified']} 条引用未在本系统 10 部法规库中核实")
         if report.get("status") == "need_more":
-            flaws.append("本系统判定要素不足已拒绝硬算；请对照是否盲目给出了估算区间")
+            flaws.append("请对照右侧已识别的事实，核对金额估算是否有对应的工资和支付记录")
         elif report.get("status") in ("out_of_scope", "blocked"):
             flaws.append("本系统已触发受案范围/红线闸门拦截；请对照是否越界作答")
         else:
@@ -462,7 +462,7 @@ def _build_live_flaws(reply: str, report: dict[str, Any], cite_audit: dict[str, 
         elif cite_audit["unverified"] > 0:
             flaws.append(f"{cite_audit['unverified']} cited article(s) could not be verified in the 519-article DB")
         if report.get("status") == "need_more":
-            flaws.append("Rule engine halted due to missing required facts; check if LLM guessed amounts")
+            flaws.append("Check any estimated amount against the pay terms and payment records identified by the assessment")
         elif report.get("status") in ("out_of_scope", "blocked"):
             flaws.append("Rule engine blocked out-of-scope / red-line prompt; check if LLM overstepped")
         else:

@@ -71,6 +71,34 @@ def test_partial_wage_payment_prompts_for_amount_then_calculates():
     assert [item["amount"] for item in complete["items"] if item["name"] == "拖欠工资"] == [24000]
 
 
+def test_staged_pay_updates_facts_scope_and_shortfall():
+    story = (
+        "我从2024年的六月实习，到2025年的一月并转正。公司答应工资是每个月一万块钱，实际到账是七千。"
+        "从2025年的一月到2023年的五月，只发了两个月的工资，也就是2025年的一月二月份的工资。"
+    )
+    first = analyze(story)
+    review = first["staged_review"]
+    assert review["internship"] == "2024-06"
+    assert review["conversion"] == "2025-01"
+    assert (review["agreed"], review["net"]) == (10000, 7000)
+    assert review["paid_months"] == ["2025-01", "2025-02"]
+    assert review["reversed_dates"] and review["unreviewed"] == []
+    assert first["scope_assessment"]["score"] == 70
+    extra = (
+        "\n核对期间：2025年1月到2025年5月。"
+        "\n【补证：用工】转正通知显示 2025 年 1 月开始正式工作。"
+        "\n【工资核对】2025-03 应到账 7000 元，实际到账 0 元。"
+        "\n【工资核对】2025-03 应到账 7000 元，实际到账 2000 元。"
+    )
+    updated = analyze(story + extra)
+    review = updated["staged_review"]
+    assert not review["reversed_dates"]
+    assert review["unreviewed"] == ["2025-04", "2025-05"]
+    assert review["difference"] == 5000 and review["gaps"] == ["pay"]
+    assert updated["scope_assessment"]["score"] == 75
+    assert "total" not in updated
+
+
 def test_pipeline_out_of_scope_has_no_money():
     r = analyze("我上班路上被车撞了，公司说这不是工伤。")
     assert r["status"] == "out_of_scope"
