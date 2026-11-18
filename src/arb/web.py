@@ -176,6 +176,16 @@ textarea:focus{outline:none;background:#fff;border-color:var(--primary);box-shad
 .groupname{font-size:12px;font-weight:600;color:#4b5563;margin:10px 0 2px}
 .guide-more{margin-top:10px}
 .guide-more summary{font-size:13px;color:var(--primary);cursor:pointer}
+.guide-shell{margin-top:10px;border:1px solid var(--border);border-radius:8px;background:#fafaf9}
+.guide-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
+               padding:10px 14px;font-weight:600;list-style:none}
+.guide-summary::-webkit-details-marker{display:none}
+.guide-summary span{font-size:12px;font-weight:500;color:var(--primary)}
+.guide-summary .guide-close,.guide-shell[open] .guide-open{display:none}
+.guide-shell[open] .guide-close{display:inline}
+.guide-body{padding:0 14px 12px}
+.guide-footer{margin-top:12px}
+.voice-panel #voiceTip{margin:0 0 8px;font-size:13px;color:var(--text)}
 
 /* KPI Strip — "One Bright Element" (Deep Jade Hero + Clean Crisp Peers) */
 .kpi-grid{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px;margin:14px 0}
@@ -279,7 +289,7 @@ summary{cursor:pointer;color:var(--primary);font-size:13px;font-weight:500}
 }
 @media (max-width:600px){
   .console-card textarea,.voice-language select{font-size:16px}
-  .console-card .btn-tool,.console-card .chip,.voice-language select{min-height:44px}
+  .console-card .btn-tool,.console-card .chip,.voice-language select,.guide-summary{min-height:44px}
 }
 @media print{
   .sidebar,.topbar,.accent-bar,.console-card,.tab-bar,.kpi-grid,.compare-wrap,.chips,.noprint,form,button{display:none!important}
@@ -308,7 +318,9 @@ def _js_str(s: str) -> str:
 def console_js(lang: str, async_compare: dict | None = None) -> str:
     async_cfg = json.dumps(async_compare or {}, ensure_ascii=False)
     voice_labels = json.dumps({key: t(lang, f"voice_{key}") for key in (
-        "btn", "stop", "listening", "done", "relative_date", "unsupported", "no_speech", "not_allowed", "failed",
+        "btn", "stop", "connecting", "listening", "finishing", "done", "relative_date", "unsupported",
+        "no_speech", "not_allowed", "no_microphone", "network", "timeout", "secure", "bad_language",
+        "failed", "keyboard_hint",
     )}, ensure_ascii=False)
     story_added = _js_str(t(lang, "story_added"))
     v_verified = _js_str(t(lang, "cmp_verified"))
@@ -429,20 +441,20 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     appendStory(answer);
   }});
 
-  // Drawers
-  function bindToggle(btnId, drawerId) {{
-    var btn = document.getElementById(btnId);
-    var dr = document.getElementById(drawerId);
-    if (btn && dr) btn.addEventListener('click', function () {{
-      btn.setAttribute('aria-expanded', String(dr.classList.toggle('open')));
-    }});
-  }}
-  bindToggle('toggleGuideBtn', 'chipsDrawer');
-  bindToggle('toggleApiBtn', 'apiDrawer');
+  var caseGuide = document.getElementById('caseGuide');
+  var guideSummary = document.getElementById('toggleGuideBtn');
+  document.getElementById('closeGuideBtn').addEventListener('click', function () {{
+    caseGuide.open = false;
+    guideSummary.focus();
+  }});
   var continueGuide = document.getElementById('continueGuide');
   if (continueGuide) continueGuide.addEventListener('click', function () {{
-    guide.classList.add('open');
-    document.getElementById('toggleGuideBtn').setAttribute('aria-expanded', 'true');
+    caseGuide.open = true;
+  }});
+  var apiBtn = document.getElementById('toggleApiBtn');
+  apiBtn.addEventListener('click', function () {{
+    var apiDrawer = document.getElementById('apiDrawer');
+    apiBtn.setAttribute('aria-expanded', String(apiDrawer.classList.toggle('open')));
   }});
 
   var clearBtn = document.getElementById('clearStoryBtn');
@@ -456,15 +468,18 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
 
   // Web Speech API voice input
   var voiceBtn = document.getElementById('voiceBtn');
+  var voicePanel = document.getElementById('voicePanel');
   var voiceTip = document.getElementById('voiceTip');
   var voiceLang = document.getElementById('voiceLanguage');
   var voiceReview = document.getElementById('voiceReview');
   var voiceText = document.getElementById('voiceText');
   var voiceAdd = document.getElementById('voiceAdd');
   var voiceDiscard = document.getElementById('voiceDiscard');
+  var voiceKeyboard = document.getElementById('voiceKeyboard');
+  var voiceClose = document.getElementById('voiceClose');
   var voiceLabels = {voice_labels};
   var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var rec = null;
+  var activeVoice = null;
   if (/^zh(?:-|$)/i.test(navigator.language)) voiceLang.value = 'zh-CN';
   try {{
     var preferredVoice = sessionStorage.getItem('arb_voice_language');
@@ -476,14 +491,18 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
 
   function updateVoicePreview() {{
     voiceReview.hidden = !voiceText.value.trim();
-    voiceText.readOnly = !!rec;
-    voiceAdd.disabled = !!rec || voiceReview.hidden;
-    voiceDiscard.disabled = !!rec;
+    voiceText.readOnly = !!activeVoice;
+    voiceAdd.disabled = !!activeVoice || voiceReview.hidden;
+    voiceDiscard.disabled = !!activeVoice;
+    voiceKeyboard.disabled = !!activeVoice;
+    voiceClose.disabled = !!activeVoice;
   }}
 
   function discardTranscript() {{
     voiceText.value = '';
     voiceTip.textContent = '';
+    voicePanel.hidden = true;
+    voiceBtn.setAttribute('aria-expanded', 'false');
     updateVoicePreview();
   }}
 
@@ -498,66 +517,108 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
   }});
   voiceAdd.addEventListener('click', function () {{
     var text = voiceText.value.trim();
-    if (!text || rec) return;
+    if (!text || activeVoice) return;
     appendStory(text);
     discardTranscript();
   }});
   voiceDiscard.addEventListener('click', discardTranscript);
+  voiceKeyboard.addEventListener('click', function () {{
+    voiceTip.textContent = voiceLabels.keyboard_hint;
+    storyBox.focus();
+  }});
+  voiceClose.addEventListener('click', function () {{
+    voicePanel.hidden = true;
+    voiceBtn.setAttribute('aria-expanded', 'false');
+    voiceBtn.focus();
+  }});
 
   voiceBtn.addEventListener('click', function () {{
+    voicePanel.hidden = false;
+    voiceBtn.setAttribute('aria-expanded', 'true');
+    voicePanel.scrollIntoView({{block: 'nearest'}});
+    if (!window.isSecureContext) {{ voiceTip.textContent = voiceLabels.secure; return; }}
     if (!SpeechRec) {{ voiceTip.textContent = voiceLabels.unsupported; return; }}
-    if (rec) {{ rec.stop(); return; }}
+    if (activeVoice) {{ activeVoice.stop(); return; }}
 
-    var current = new SpeechRec();
+    var current;
+    try {{ current = new SpeechRec(); }} catch (err) {{
+      voiceTip.textContent = voiceLabels.failed;
+      return;
+    }}
     var previous = voiceText.value.trim();
     var heard = '';
-    var error = '';
+    var timer;
+    var stopping = false;
     current.lang = voiceLang.value;
     current.continuous = false;
     current.interimResults = true;
+
+    var session = {{stop: stop}};
 
     function joinTranscript(text) {{
       return [previous, text].filter(Boolean).join('\\n');
     }}
 
-    function finish() {{
-      if (rec !== current) return;
-      rec = null;
+    function finish(message) {{
+      if (activeVoice !== session) return;
+      clearTimeout(timer);
+      activeVoice = null;
       voiceText.value = joinTranscript(heard);
       voiceLang.disabled = false;
       voiceBtn.classList.remove('recording');
       voiceBtn.querySelector('span').textContent = voiceLabels.btn;
-      voiceTip.textContent = error || (heard ? transcriptStatus() : voiceLabels.no_speech);
+      voiceTip.textContent = message || (heard ? transcriptStatus() : voiceLabels.no_speech);
       updateVoicePreview();
     }}
 
+    function timeout() {{
+      finish(voiceLabels.timeout);
+      try {{ current.abort(); }} catch (err) {{ /* A closed browser recognizer needs no further work. */ }}
+    }}
+
+    function armTimeout(ms) {{
+      clearTimeout(timer);
+      timer = setTimeout(timeout, ms);
+    }}
+
+    function stop() {{
+      if (stopping) return;
+      stopping = true;
+      voiceTip.textContent = voiceLabels.finishing;
+      armTimeout(5000);
+      try {{ current.stop(); }} catch (err) {{ finish(voiceLabels.failed); }}
+    }}
+
+    current.onstart = function () {{
+      if (activeVoice !== session || stopping) return;
+      voiceTip.textContent = voiceLabels.listening;
+      armTimeout(20000);
+    }};
     current.onresult = function (ev) {{
-      if (rec !== current) return;
-      var results = Array.from(ev.results);
-      heard = results.filter(function (result) {{ return result.isFinal; }})
-        .map(function (result) {{ return result[0].transcript.trim(); }}).join(' ').trim();
-      var preview = results.map(function (result) {{ return result[0].transcript.trim(); }}).join(' ').trim();
-      voiceText.value = joinTranscript(preview);
+      if (activeVoice !== session) return;
+      var preview = Array.from(ev.results, function (result) {{ return result[0].transcript.trim(); }}).join(' ').trim();
+      if (preview) heard = preview;
+      voiceText.value = joinTranscript(heard);
       updateVoicePreview();
+      if (!stopping) armTimeout(20000);
     }};
     current.onerror = function (ev) {{
-      var messages = {{'no-speech': 'no_speech', 'not-allowed': 'not_allowed', 'service-not-allowed': 'not_allowed',
-                       'audio-capture': 'not_allowed', 'language-not-supported': 'unsupported'}};
-      error = voiceLabels[messages[ev.error]] || voiceLabels.failed;
-      finish();
+      var messages = {{
+        'no-speech': 'no_speech', 'not-allowed': 'not_allowed', 'service-not-allowed': 'not_allowed',
+        'audio-capture': 'no_microphone', 'language-not-supported': 'bad_language', 'network': 'network'
+      }};
+      finish(voiceLabels[messages[ev.error]] || voiceLabels.failed);
     }};
-    current.onend = finish;
+    current.onend = function () {{ finish(); }};
 
-    rec = current;
+    activeVoice = session;
     voiceLang.disabled = true;
     voiceBtn.classList.add('recording');
     voiceBtn.querySelector('span').textContent = voiceLabels.stop;
-    voiceTip.textContent = voiceLabels.listening;
+    voiceTip.textContent = voiceLabels.connecting;
     updateVoicePreview();
-    try {{ current.start(); }} catch (err) {{
-      error = voiceLabels.failed;
-      finish();
-    }}
+    armTimeout(12000);
+    try {{ current.start(); }} catch (err) {{ finish(voiceLabels.failed); }}
   }});
 
   // Persist optional API overrides in sessionStorage
@@ -1017,7 +1078,7 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
     zh_selected = " selected" if lang == "zh" else ""
     en_selected = " selected" if lang != "zh" else ""
     suggested = followup_chips(report, lang)
-    drawer_open = " open" if suggested else ""
+    guide_open = " open" if suggested else ""
     guide_intro = "guide_followup" if suggested else "guide_intro"
     excluded = () if suggested else QUICK_TOPICS
     quick_chips = suggested or [topic_chip(BY_TERM[term], lang) for term in QUICK_TOPICS]
@@ -1036,7 +1097,7 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         f'placeholder="{esc(t(lang, "placeholder"))}">{esc(story)}</textarea>',
         '<div class="voice-tip" id="storyFeedback" role="status"></div>',
         '<div class="toolbar"><div class="tool-left">',
-        '<button type="button" class="btn-tool" id="voiceBtn">'
+        '<button type="button" class="btn-tool" id="voiceBtn" aria-controls="voicePanel" aria-expanded="false">'
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
         '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>'
         '<path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>'
@@ -1046,19 +1107,22 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         f'<option lang="zh-CN" value="zh-CN"{zh_selected}>普通话</option>'
         f'<option lang="en" value="en-US"{en_selected}>English</option>'
         '</select></label>',
-        f'<button type="button" class="btn-tool" id="toggleGuideBtn" aria-controls="chipsDrawer" '
-        f'aria-expanded="{str(bool(suggested)).lower()}">{esc(t(lang, "guide_btn"))} ▾</button>',
-        f'<button type="button" class="btn-tool" id="toggleApiBtn">{esc(t(lang, "api_btn"))}</button>',
+        f'<button type="button" class="btn-tool" id="toggleApiBtn" '
+        f'aria-controls="apiDrawer" aria-expanded="false">{esc(t(lang, "api_btn"))}</button>',
         '</div><div class="tool-right">',
         f'<label class="switch"><input type="checkbox" id="compareCheck" name="compare" value="1" {checked}> {esc(t(lang, "compare_toggle"))}</label>',
         f'<button type="submit" class="btn-primary">{esc(btn_text)}</button>',
         "</div></div>",
-        '<div class="voice-tip" id="voiceTip" role="status"></div>',
-        '<section class="input-review" id="voiceReview" hidden>',
+        '<section class="input-review voice-panel" id="voicePanel" hidden>',
+        '<p class="voice-tip" id="voiceTip" role="status"></p>',
+        '<div id="voiceReview" hidden>',
         f'<label for="voiceText">{esc(t(lang, "voice_review"))}</label>',
         '<textarea id="voiceText" rows="3" aria-describedby="voiceTip"></textarea>',
         f'<button type="button" class="btn-tool" id="voiceAdd" disabled>{esc(t(lang, "story_add"))}</button> ',
         f'<button type="button" class="btn-tool" id="voiceDiscard">{esc(t(lang, "voice_discard"))}</button>',
+        '</div>',
+        f'<button type="button" class="btn-tool" id="voiceKeyboard">{esc(t(lang, "voice_keyboard"))}</button> ',
+        f'<button type="button" class="btn-tool" id="voiceClose">{esc(t(lang, "voice_close"))}</button>',
         '</section>',
         '<div class="drawer" id="apiDrawer">',
         f'<div class="dim"><b>{esc(api_note)}</b></div>',
@@ -1067,7 +1131,11 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         '<input type="text" name="base_url" id="apiBaseInput" placeholder="Base URL (https://api.deepseek.com/v1)">',
         '<input type="text" name="model" id="apiModelInput" placeholder="Model (deepseek-chat)">',
         "</div></div>",
-        f'<div class="drawer{drawer_open}" id="chipsDrawer">',
+        f'<details class="guide-shell" id="caseGuide"{guide_open}>',
+        f'<summary class="guide-summary" id="toggleGuideBtn">{esc(t(lang, "guide_btn"))}'
+        f'<span class="guide-open" aria-hidden="true">{esc(t(lang, "guide_open"))} ▾</span>'
+        f'<span class="guide-close" aria-hidden="true">{esc(t(lang, "guide_close"))} ▴</span></summary>',
+        '<div class="guide-body" id="chipsDrawer">',
         f'<p class="sub" style="margin:0 0 6px">{esc(t(lang, guide_intro))}</p>',
         f'<div class="chips" id="guideSuggestions">{"".join(quick_chips)}</div>',
         '<section class="input-review" id="guidePrompt" tabindex="-1" aria-labelledby="guideTopic" '
@@ -1084,7 +1152,9 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         f'<summary>{esc(t(lang, "guide_more"))}</summary>',
         chips_html(lang=lang, exclude=excluded),
         '</details>',
-        "</div></form></section>",
+        f'<div class="guide-footer"><button type="button" class="btn-tool" id="closeGuideBtn">'
+        f'{esc(t(lang, "guide_close"))}</button></div>',
+        "</div></details></form></section>",
     ]
     return "".join(out)
 
@@ -1199,7 +1269,7 @@ def render_page(
             for q in report["questions"]:
                 body.append(f'<p style="margin:4px 0">· {esc(tr_question(lang, q))}</p>')
         else:
-            body.append(f'<p><a id="continueGuide" href="#chipsDrawer">{esc(t(lang, "guide_continue"))}</a></p>')
+            body.append(f'<p><a id="continueGuide" href="#caseGuide">{esc(t(lang, "guide_continue"))}</a></p>')
         if lang == "zh":
             for x in report.get("relative") or []:
                 body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
