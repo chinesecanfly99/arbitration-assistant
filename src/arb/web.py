@@ -318,7 +318,7 @@ def _js_str(s: str) -> str:
 def console_js(lang: str, async_compare: dict | None = None) -> str:
     async_cfg = json.dumps(async_compare or {}, ensure_ascii=False)
     voice_labels = json.dumps({key: t(lang, f"voice_{key}") for key in (
-        "btn", "stop", "connecting", "listening", "finishing", "done", "relative_date", "unsupported",
+        "btn", "stop", "connecting", "listening", "resuming", "idle", "finishing", "done", "relative_date", "unsupported",
         "no_speech", "not_allowed", "no_microphone", "network", "timeout", "secure", "bad_language",
         "failed", "keyboard_hint",
     )}, ensure_ascii=False)
@@ -540,76 +540,136 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     if (!SpeechRec) {{ voiceTip.textContent = voiceLabels.unsupported; return; }}
     if (activeVoice) {{ activeVoice.stop(); return; }}
 
-    var current;
-    try {{ current = new SpeechRec(); }} catch (err) {{
-      voiceTip.textContent = voiceLabels.failed;
-      return;
-    }}
     var previous = voiceText.value.trim();
+    var language = voiceLang.value;
+    var separator = language === 'zh-CN' ? '' : ' ';
+    var completed = '';
     var heard = '';
-    var timer;
+    var current = null;
+    var connectionTimer, idleTimer, restartTimer;
+    var quickDisconnects = 0;
     var stopping = false;
-    current.lang = voiceLang.value;
-    current.continuous = false;
-    current.interimResults = true;
-
     var session = {{stop: stop}};
 
-    function joinTranscript(text) {{
-      return [previous, text].filter(Boolean).join('\\n');
+    function paragraph() {{
+      return [completed, heard].filter(Boolean).join(separator);
+    }}
+
+    function transcript() {{
+      return [previous, paragraph()].filter(Boolean).join('\\n');
     }}
 
     function finish(message) {{
       if (activeVoice !== session) return;
-      clearTimeout(timer);
+      clearTimeout(connectionTimer);
+      clearTimeout(idleTimer);
+      clearTimeout(restartTimer);
       activeVoice = null;
-      voiceText.value = joinTranscript(heard);
+      current = null;
+      voiceText.value = transcript();
       voiceLang.disabled = false;
       voiceBtn.classList.remove('recording');
       voiceBtn.querySelector('span').textContent = voiceLabels.btn;
-      voiceTip.textContent = message || (heard ? transcriptStatus() : voiceLabels.no_speech);
+      voiceTip.textContent = message || (voiceText.value.trim() ? transcriptStatus() : voiceLabels.no_speech);
       updateVoicePreview();
     }}
 
-    function timeout() {{
-      finish(voiceLabels.timeout);
-      try {{ current.abort(); }} catch (err) {{ /* A closed browser recognizer needs no further work. */ }}
+    function abortWithMessage(message) {{
+      var recognizer = current;
+      finish(message);
+      if (recognizer) {{
+        try {{ recognizer.abort(); }} catch (err) {{ /* The browser may have ended the recognizer already. */ }}
+      }}
     }}
 
-    function armTimeout(ms) {{
-      clearTimeout(timer);
-      timer = setTimeout(timeout, ms);
+    function waitForBrowser(ms, message) {{
+      clearTimeout(connectionTimer);
+      connectionTimer = setTimeout(function () {{ abortWithMessage(message); }}, ms);
+    }}
+
+    function noteActivity() {{
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(function () {{
+        abortWithMessage(paragraph() ? voiceLabels.idle : voiceLabels.no_speech);
+      }}, 45000);
     }}
 
     function stop() {{
       if (stopping) return;
       stopping = true;
+      clearTimeout(restartTimer);
+      clearTimeout(idleTimer);
+      if (!current) {{ finish(); return; }}
       voiceTip.textContent = voiceLabels.finishing;
-      armTimeout(5000);
-      try {{ current.stop(); }} catch (err) {{ finish(voiceLabels.failed); }}
+      waitForBrowser(5000, voiceLabels.timeout);
+      try {{ current.stop(); }} catch (err) {{ abortWithMessage(voiceLabels.failed); }}
     }}
 
-    current.onstart = function () {{
+    function listen() {{
       if (activeVoice !== session || stopping) return;
-      voiceTip.textContent = voiceLabels.listening;
-      armTimeout(20000);
-    }};
-    current.onresult = function (ev) {{
-      if (activeVoice !== session) return;
-      var preview = Array.from(ev.results, function (result) {{ return result[0].transcript.trim(); }}).join(' ').trim();
-      if (preview) heard = preview;
-      voiceText.value = joinTranscript(heard);
-      updateVoicePreview();
-      if (!stopping) armTimeout(20000);
-    }};
-    current.onerror = function (ev) {{
-      var messages = {{
-        'no-speech': 'no_speech', 'not-allowed': 'not_allowed', 'service-not-allowed': 'not_allowed',
-        'audio-capture': 'no_microphone', 'language-not-supported': 'bad_language', 'network': 'network'
+      var recognizer;
+      try {{ recognizer = new SpeechRec(); }} catch (err) {{
+        finish(voiceLabels.failed);
+        return;
+      }}
+      current = recognizer;
+      recognizer.lang = language;
+      recognizer.continuous = true;
+      recognizer.interimResults = true;
+      var startedAt = Date.now();
+
+      recognizer.onstart = function () {{
+        if (current !== recognizer || stopping) return;
+        clearTimeout(connectionTimer);
+        voiceTip.textContent = voiceLabels.listening;
       }};
-      finish(voiceLabels[messages[ev.error]] || voiceLabels.failed);
-    }};
-    current.onend = function () {{ finish(); }};
+      recognizer.onspeechstart = function () {{
+        if (current === recognizer && !stopping) noteActivity();
+      }};
+      recognizer.onresult = function (ev) {{
+        if (current !== recognizer) return;
+        var preview = Array.from(ev.results, function (result) {{ return result[0].transcript.trim(); }})
+          .filter(Boolean).join(separator);
+        if (preview && preview !== heard) {{
+          heard = preview;
+          if (!stopping) noteActivity();
+        }}
+        voiceText.value = transcript();
+        updateVoicePreview();
+      }};
+      recognizer.onerror = function (ev) {{
+        if (current !== recognizer) return;
+        if (ev.error === 'no-speech' && !stopping) {{
+          // A normal end event follows a silence error and can reconnect within this session.
+          waitForBrowser(5000, voiceLabels.no_speech);
+          return;
+        }}
+        if (stopping && (ev.error === 'aborted' || ev.error === 'no-speech')) {{
+          finish();
+          return;
+        }}
+        var messages = {{
+          'not-allowed': 'not_allowed', 'service-not-allowed': 'not_allowed',
+          'audio-capture': 'no_microphone', 'language-not-supported': 'bad_language', 'network': 'network'
+        }};
+        finish(voiceLabels[messages[ev.error]] || voiceLabels.failed);
+      }};
+      recognizer.onend = function () {{
+        if (current !== recognizer) return;
+        if (stopping || document.hidden) {{ finish(); return; }}
+        clearTimeout(connectionTimer);
+        current = null;
+        quickDisconnects = !heard && Date.now() - startedAt < 750 ? quickDisconnects + 1 : 0;
+        completed = paragraph();
+        heard = '';
+        if (quickDisconnects >= 3) {{ finish(voiceLabels.failed); return; }}
+        voiceTip.textContent = voiceLabels.resuming;
+        restartTimer = setTimeout(listen, 300);
+      }};
+
+      waitForBrowser(12000, voiceLabels.timeout);
+      try {{ recognizer.start(); }} catch (err) {{ finish(voiceLabels.failed); }}
+    }}
 
     activeVoice = session;
     voiceLang.disabled = true;
@@ -617,8 +677,8 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     voiceBtn.querySelector('span').textContent = voiceLabels.stop;
     voiceTip.textContent = voiceLabels.connecting;
     updateVoicePreview();
-    armTimeout(12000);
-    try {{ current.start(); }} catch (err) {{ finish(voiceLabels.failed); }}
+    noteActivity();
+    listen();
   }});
 
   // Persist optional API overrides in sessionStorage
