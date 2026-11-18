@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .spoken_wage import spoken_wage_issue
+
 # 明确的"不归仲裁管"事项：命中即指路
 OUT_OF_SCOPE = [
     {
@@ -166,6 +168,8 @@ def judge(story: str, fields: dict | None = None) -> Verdict:
             )
 
     causes = [name for name, pats in CAUSE_RULES if any(re.search(p, story) for p in pats)]
+    if "unpaid_wage" not in causes and spoken_wage_issue(story):
+        causes.append("unpaid_wage")
     if not causes and fields:
         # 关键词没命中，但能抽出劳动关系要素：不算"超出范围"，只是请求没说清楚
         term = fields.get("termination")
@@ -213,8 +217,19 @@ def assess_scope(story: str, verdict: Verdict, staged_review: dict | None = None
         return {"score": 5, "kind": other, "causes": []}
     if staged_review is not None:
         evidence = staged_review["evidence"]
-        supported = bool(staged_review["conversion"] and (evidence.get("用工") or evidence.get("考勤")))
-        return {"score": 75 if supported else 70, "kind": "staged_supported" if supported else "staged", "causes": causes}
+        signals = {
+            "work_status": (4, staged_review["employment_status"] is not None),
+            "work_arrangement": (5, staged_review["arrangement"]),
+            "unpaid_internship": (4, staged_review["internship_unpaid"] and staged_review["internship_pay"] is not None),
+            "net_comparison": (4, staged_review["net_estimate"] is not None),
+            "work_records": (5, bool(evidence.get("用工") or evidence.get("考勤"))),
+            "pay_records": (4, bool(evidence.get("工资约定") or evidence.get("付款") or staged_review["monthly"])),
+        }
+        score = min(95, 70 + sum(points for points, present in signals.values() if present))
+        return {
+            "score": score, "kind": "staged_supported" if signals["work_records"][1] else "staged",
+            "causes": causes, "signals": [key for key, (_, present) in signals.items() if present],
+        }
     if verdict.redirect:
         # These issues need administrative directions. Show separate, identifiable labor claims as well.
         labor_causes = [cause for cause in causes if cause not in ("mutual_agreement", "pregnant_protection")]

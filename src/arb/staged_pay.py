@@ -5,6 +5,10 @@ import re
 from decimal import Decimal
 
 from .extract import _cn_int
+from .spoken_wage import (
+    AMOUNT, COMPENSATION_QUESTION, COUNT, ENDED_WORK, NO_PAY_AT_ALL, ONGOING_WORK,
+    SPACE, WAGE, WAGE_UNPAID, clean_dictation, parse_amount,
+)
 
 MONTH = r"(?:\d{1,2}|[一二三四五六七八九十]{1,3})"
 YEAR_MONTH = rf"(?:20\d{{2}}(?:\s*年(?:的)?\s*{MONTH}\s*月(?:份)?|-\d{{1,2}}))"
@@ -12,16 +16,47 @@ DAY = r"(?:\s*\d{1,2}\s*[日号])?"
 RANGE = re.compile(rf"({YEAR_MONTH}){DAY}\s*(?:到|至|(?i:to))\s*({YEAR_MONTH}){DAY}")
 CORRECTION = re.compile(r"核对期间|欠薪期间|工资期间|核对区间|工资区间|更正(?:为|是)?|(?i:pay period)")
 PAY_CONTEXT = re.compile(r"发(?:了|过)?工资|工资|发了|少发|欠付|欠薪|报酬|到账")
-AMOUNT = r"((?:\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?\s*(?:万|千)?|[一二两三四五六七八九十]{1,3}(?:万|千|百))(?:\s*(?:元|块(?:钱)?))?)"
 AGREED = re.compile(
     rf"(?:答应|承诺|约定|说好|合同写明)[^。！？；\n]{{0,36}}?"
-    rf"(?:每个?月|月薪|工资)(?:是|为|有|约)?\s*{AMOUNT}"
+    rf"(?:每个?月|月薪|工资|薪资)(?:是|为|有|约|按)?{SPACE}{AMOUNT}"
 )
-NET = re.compile(rf"(?:实际发放|实际到账|扣除五险一金|到手|实发)[^。，！？；\n\d一二两三四五六七八九十]{{0,16}}{AMOUNT}")
+AGREED_FIRST = re.compile(rf"(?:答应|承诺|约定|说好){SPACE}{AMOUNT}{SPACE}(?:一?个?月|每个?月|/月)")
+NET = re.compile(
+    rf"(?:实际到账|到手|税后|净工资|实到|扣除五险一金(?:后)?){SPACE}"
+    rf"(?:预计|大概|差不多|约|是|为|有|只|了|只有)*{SPACE}{AMOUNT}"
+)
+EXPECTED_NET = re.compile(
+    rf"(?:预计|应当|应该|本该|说好的?|约定的?|正常)(?:每个?月)?{SPACE}{NET.pattern}"
+    rf"|(?:应|预计|约定){SPACE}(?:净到手|到账){SPACE}{AMOUNT}"
+)
+AFTER_CONVERSION = re.compile(r"转正(?:以后|之后|后)|转为正式员工(?:以后|之后|后)")
+INTERN_PHASE = r"(?:实习(?:期(?:间)?|阶段|那段(?:时间)?|的时候|的那几个月|的|时)|转正前)"
+INTERN_MONTHLY = re.compile(
+    rf"{INTERN_PHASE}{SPACE}(?:的|说好|约定|按|是|为|工资|报酬|补贴|每个?月|月薪){{0,8}}{SPACE}{AMOUNT}"
+    rf"|{WAGE}{SPACE}(?:每个?月|按月){SPACE}{AMOUNT}(?=[^。！？；\n]{{0,12}}{INTERN_PHASE})"
+)
+INTERN_DURATION = re.compile(
+    rf"(?:经过|干了|做了|先)?{SPACE}(?:实习(?:了|满)?{SPACE}({COUNT}{SPACE}个?月|半年)"
+    rf"|({COUNT}{SPACE}个?月|半年)(?:的)?实习){SPACE}(?:以后|之后|后|才|就|并|然后){{0,3}}{SPACE}(?:正式)?转正"
+)
+ACTUAL_WAGE = re.compile(
+    rf"(?:转正(?:后|以后|之后)|之后|后来|现在|给我的|实际){SPACE}"
+    rf"(?:公司|单位|只|每个?月|给我的?|实发的?|发了?|给了?|的|是|税前){{0,8}}{SPACE}"
+    rf"(?:{WAGE}{SPACE}(?:只|只有|就|是|为|按){{0,4}}{SPACE})?{AMOUNT}"
+)
+SCHOOL_ARRANGEMENT = re.compile(
+    r"学校(?:统一|直接|老师|给我们?|要求)?(?:安排|派去|组织|要求我去)|教学实习|课程实习|三方实习协议"
+)
+EMPLOYER_ARRANGEMENT = re.compile(
+    r"(?:公司|单位|人事|主管|领导|店长|经理)[^。！？；\n]{0,16}"
+    r"(?:排班|管着我|管理我的工作|安排工作|分配任务|考勤|打卡|招聘|招进去|布置任务)"
+    r"|实习[^。！？；\n]{0,10}(?:打卡|按排班|正常上班|全职上班)"
+    r"|我(?:是)?自己(?:找的|应聘|投简历)|公司直接招(?:我|用)"
+)
 PAID_COUNT = re.compile(rf"(?:只|仅)(?:发|给|支付)(?:了|过)?\s*({MONTH}|两)\s*个?月(?:份)?的?工资")
 PAID_MONTHS = re.compile(
     rf"(?:已经发了|已发|发了|已到账|也就是)\s*({YEAR_MONTH})"
-    rf"((?:(?:\s*(?:、|和|与|及|[，,])?\s*){MONTH}\s*月(?:份)?)*)"
+    rf"((?:(?:\s*(?:、|和|与|及)?\s*){MONTH}\s*月(?:份)?)*)"
 )
 PAY_ROW = re.compile(
     r"^【工资核对】(20\d{2}-(?:0[1-9]|1[0-2]))\s+应到账\s+"
@@ -47,23 +82,17 @@ def _month_key(value: str) -> str | None:
 
 
 def _event_month(story: str, event: str) -> str | None:
-    matches = re.findall(rf"({YEAR_MONTH}){DAY}\s*(?:并|正式|开始)?\s*(?:{event})", story)
-    matches += re.findall(rf"(?:{event})(?:日期|时间|起始)?\s*(?:是|为|从|在|[:：])\s*({YEAR_MONTH})", story)
-    return _month_key(matches[-1]) if matches else None
+    patterns = (
+        rf"({YEAR_MONTH}){DAY}{SPACE}(?:并|正式|开始|就|才)?{SPACE}(?:{event})",
+        rf"(?:{event})(?:日期|时间|起始)?\s*(?:是|为|从|在|于|[:：])\s*({YEAR_MONTH})",
+    )
+    matches = [match for pattern in patterns for match in re.finditer(pattern, story)]
+    return _month_key(max(matches, key=lambda match: match.end())[1]) if matches else None
 
 
 def _money(pattern: re.Pattern, story: str) -> Decimal | None:
-    matches = pattern.findall(story)
-    if not matches:
-        return None
-    raw = re.sub(r"[\s,元块钱]", "", matches[-1])
-    multiplier = {"万": 10000, "千": 1000, "百": 100}.get(raw[-1])
-    if multiplier:
-        raw = raw[:-1]
-    if re.fullmatch(r"\d+(?:\.\d{1,2})?", raw):
-        return Decimal(raw) * (multiplier or 1)
-    number = _cn_int(raw)
-    return Decimal(number * (multiplier or 1)) if number is not None else None
+    amounts = [value for match in pattern.finditer(story) if (value := parse_amount(next(g for g in match.groups() if g))) is not None]
+    return amounts[-1] if amounts else None
 
 
 def _month_range(story: str) -> tuple[str | None, str | None]:
@@ -107,16 +136,76 @@ def _evidence(story: str) -> dict[str, list[str]]:
     for kind, names in EVIDENCE_REFERENCES.items():
         if kind in recorded:
             continue
-        match = re.search(rf"(?:我有|保留了|已保存|可提供|能提供|我拿到了)\s*(?:一份|一张|公司发的|自己的)?\s*({names})", story)
+        match = re.search(
+            rf"(?:我(?:手里|这边)?有|手上有|手里有|留着|保留了|已保存|可提供|能提供|我拿到了|我签了)"
+            rf"{SPACE}(?:一份|一张|公司发的|自己的|这个)?{SPACE}({names})"
+            rf"|({names})(?:上|里|里面)?(?:写着|写了|载明|显示|能证明)", story,
+        )
         if match:
-            recorded[kind] = [match.group(1)]
+            recorded[kind] = [next(value for value in match.groups() if value)]
     return recorded
 
 
+def _oral_pay(narrative: str) -> dict:
+    employment_status = None
+    for match in re.finditer(rf"({ONGOING_WORK.pattern})|({ENDED_WORK.pattern})", narrative):
+        employment_status = "ongoing" if match[1] else "ended"
+
+    durations = list(INTERN_DURATION.finditer(narrative))
+    duration = durations[-1] if durations else None
+    spoken_duration = (duration[1] or duration[2]) if duration else ""
+    count = re.match(COUNT, spoken_duration)
+    internship_months = 6 if spoken_duration == "半年" else _cn_int(count[0]) if count else None
+    internship = _event_month(narrative, r"开始实习|(?:在|去|进|到)[^，。！？；\n]{1,24}?实习|实习")
+    conversion = _event_month(narrative, "转正|转为正式员工|转为全职")
+    inferred = False
+    if internship and internship_months and not conversion:
+        year, month = map(int, internship.split("-"))
+        offset = year * 12 + month - 1 + internship_months
+        conversion = f"{offset // 12:04d}-{offset % 12 + 1:02d}"
+        inferred = True
+
+    internship_pay = _money(INTERN_MONTHLY, narrative)
+    internship_unpaid = False
+    for match in re.finditer(r"实习(?!转正)|转正前", narrative):
+        context = re.split(r"转正(?:后|以后|之后|[。！？?])|正式工作后|[；;\n]", narrative[match.end():match.end() + 58], maxsplit=1)[0]
+        if WAGE_UNPAID.search(context) or NO_PAY_AT_ALL.search(context):
+            internship_unpaid = True
+            break
+    agreed = _money(AGREED, narrative) or _money(AGREED_FIRST, narrative)
+    expected_mentions = list(EXPECTED_NET.finditer(narrative))
+    nets = [
+        (match.start(), parse_amount(match[1])) for match in NET.finditer(narrative)
+        if not any(expected.start() <= match.start() < expected.end() for expected in expected_mentions)
+    ]
+    net = nets[-1][1] if nets else None
+    expected_net = _money(EXPECTED_NET, narrative)
+    boundary = duration.end() if duration else None
+    if boundary is None:
+        transition = AFTER_CONVERSION.search(narrative)
+        boundary = transition.end() if transition else None
+    actual_wage = _money(ACTUAL_WAGE, narrative[boundary:] if duration and boundary else narrative)
+    if expected_net is None and agreed and boundary is not None and len(nets) > 1 and nets[0][0] < boundary <= nets[-1][0]:
+        expected_net = nets[0][1]
+    school = SCHOOL_ARRANGEMENT.search(narrative)
+    employer = EMPLOYER_ARRANGEMENT.search(narrative)
+    arrangement = "employer" if employer else "school" if school else None
+    if school and employer:
+        arrangement = "both"
+    return {
+        "internship": internship, "internship_months": internship_months,
+        "conversion": conversion, "conversion_inferred": inferred,
+        "agreed": agreed, "net": net, "expected_net": expected_net, "actual_wage": actual_wage,
+        "internship_pay": internship_pay, "internship_unpaid": internship_unpaid,
+        "employment_status": employment_status, "arrangement": arrangement,
+        "asks_compensation": bool(COMPENSATION_QUESTION.search(narrative)),
+    }
+
+
 def review_staged_pay(story: str) -> dict:
-    internship = _event_month(story, "开始实习|实习")
-    conversion = _event_month(story, "转正|转为正式员工|转为全职")
-    narrative = "\n".join(line for line in story.splitlines() if not line.startswith(("【补证：", "【工资核对】")))
+    narrative = clean_dictation("\n".join(line for line in story.splitlines() if not line.startswith(("【补证：", "【工资核对】"))))
+    oral = _oral_pay(narrative)
+    conversion = oral["conversion"]
     first, last = _month_range(narrative)
     paid = _stated_paid_months(narrative)
     count = PAID_COUNT.search(narrative)
@@ -136,17 +225,27 @@ def review_staged_pay(story: str) -> dict:
         if post_conversion and paid and not payment_conflict else []
     )
     gaps = []
-    if not conversion or ("用工" not in evidence and "考勤" not in evidence):
+    if not (oral["arrangement"] or evidence.get("用工") or evidence.get("考勤")):
         gaps.append("employment")
-    if reversed_dates or not period:
+    has_pay_comparison = (
+        (oral["agreed"] is not None and (oral["actual_wage"] is not None or oral["net"] is not None))
+        or (oral["expected_net"] is not None and oral["net"] is not None)
+    )
+    has_internship_amount = oral["internship_unpaid"] and oral["internship_pay"] is not None
+    oral["internship_estimate"] = (
+        oral["internship_pay"] * oral["internship_months"]
+        if has_internship_amount and oral["internship_months"] else None
+    )
+    oral["net_estimate"] = (
+        max(oral["expected_net"] - oral["net"], Decimal(0))
+        if oral["expected_net"] is not None and oral["net"] is not None else None
+    )
+    if reversed_dates or (not period and not (monthly or has_pay_comparison or (has_internship_amount and oral["internship_months"]))):
         gaps.append("period")
-    if not monthly or unreviewed or payment_conflict:
+    if payment_conflict or (not monthly and not (has_pay_comparison or has_internship_amount)):
         gaps.append("pay")
     return {
-        "internship": internship,
-        "conversion": conversion,
-        "agreed": _money(AGREED, narrative),
-        "net": _money(NET, narrative),
+        **oral,
         "paid_months": paid,
         "paid_count": paid_count,
         "first": first,

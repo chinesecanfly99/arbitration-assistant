@@ -33,6 +33,7 @@ from .i18n import (
     BURDEN_EN,
     CLARIFICATION_GUIDES,
     case_prompt,
+    clarification_prompts,
     staged_prompts,
     t,
     tr_basis,
@@ -64,6 +65,7 @@ from .i18n import (
 from .map import FIELD_LABELS, completeness, summary_line
 from .pdf import render_pdf
 from .pipeline import QUESTIONS, analyze, covered_cities
+from .spoken_wage import ONGOING_WORK
 
 CSS = """
 *{box-sizing:border-box}
@@ -571,6 +573,7 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     if (!text || activeVoice) return;
     appendStory(text);
     discardTranscript();
+    if (reviewSubmit) form.requestSubmit(reviewSubmit);
   }});
   voiceDiscard.addEventListener('click', discardTranscript);
   voiceKeyboard.addEventListener('click', function () {{
@@ -837,13 +840,16 @@ def followup_chips(report: dict | None, lang: str) -> list[str]:
         prompts = staged_prompts(report["staged_review"], lang)
         return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
     if report.get("clarification"):
-        _, _, _, _, prompts = CLARIFICATION_GUIDES[report["clarification"]][lang]
+        prompts = clarification_prompts(report["clarification"], lang, report.get("case_goal", False))
         return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
     missing = report.get("missing", [])
     sources = report.get("sources", {})
+    still_working = bool(ONGOING_WORK.search(report.get("story", "")))
     suggestions = []
     for key, label, hint in FIELD_LABELS:
         if key not in QUESTIONS or (key not in missing and sources.get(key) != "assumed"):
+            continue
+        if still_working and key in ("end_date", "termination"):
             continue
         name = tr_field_label(lang, label)
         prefix = "补：" if lang == "zh" else "+ "
@@ -1178,7 +1184,8 @@ def compare_html(
         out.append(f'<p><a class="export-btn" href="#caseProgress">{view}</a></p>')
     elif status == "need_more":
         if report.get("clarification"):
-            title, reason, _, _, prompts = CLARIFICATION_GUIDES[report["clarification"]][lang]
+            title, reason, _, _, _ = CLARIFICATION_GUIDES[report["clarification"]][lang]
+            prompts = clarification_prompts(report["clarification"], lang, report.get("case_goal", False))
             qs = [reason] + [question for _, question, _ in prompts[:2]]
         else:
             title = t(lang, "need_more_title")
@@ -1211,17 +1218,28 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
     zh_selected = " selected" if lang == "zh" else ""
     en_selected = " selected" if lang != "zh" else ""
     suggested = followup_chips(report, lang)
-    guide_open = " open" if suggested else ""
-    guide_intro = "guide_followup" if suggested else "guide_intro"
-    guide_copy = t(lang, guide_intro)
-    staged = bool(report and report.get("staged_review"))
-    if staged and suggested:
+    staged = report.get("staged_review") if report else None
+    guide_open = " open" if suggested and (staged is None or staged["reversed_dates"]) else ""
+    if report is None:
+        guide_copy = t(lang, "guide_intro")
+        quick_chips = [topic_chip(BY_TERM[term], lang) for term in QUICK_TOPICS]
+    elif suggested:
         guide_copy = (
-            "已有信息已用于初步分析。选一个问题补充，提交后会更新结果。"
-            if lang == "zh" else "Your initial assessment is ready. Answer a question to update it."
+            "以下问题可按需核对。可以直接口述，提交后会更新分析。"
+            if lang == "zh" else "Answer any remaining question in your own words to update the assessment."
         )
-    excluded = () if suggested else QUICK_TOPICS
-    quick_chips = suggested or [topic_chip(BY_TERM[term], lang) for term in QUICK_TOPICS]
+        quick_chips = suggested
+    else:
+        guide_copy = (
+            "已根据你的描述给出分析。新增情况可直接写进案情。"
+            if lang == "zh" else "Your account has been assessed. Add any new details to the case description."
+        )
+        quick_chips = []
+    excluded = QUICK_TOPICS
+    guide_count = (
+        f' <span class="sub">· {len(suggested)} 项可核对</span>' if lang == "zh" else
+        f' <span class="sub">· {len(suggested)} to check</span>'
+    ) if suggested else ""
     cfg = llm.config()
     api_note = (
         t(lang, "api_connected_note", model=cfg["model"], base=cfg["base"])
@@ -1253,7 +1271,7 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         f'<label class="switch"><input type="checkbox" id="compareCheck" name="compare" value="1" {checked}> {esc(t(lang, "compare_toggle"))}</label>',
         f'<button type="submit" class="btn-primary">{esc(btn_text)}</button>',
         ('<button type="submit" id="reviewSubmit" name="review_update" value="1" '
-         'formaction="/analyze#caseProgress" hidden></button>') if staged else "",
+         'formaction="/analyze#caseProgress" hidden></button>') if report is not None else "",
         "</div></div>",
         '<section class="input-review voice-panel" id="voicePanel" hidden>',
         '<p class="voice-tip" id="voiceTip" role="status"></p>',
@@ -1274,7 +1292,7 @@ def input_console_html(story: str = "", show_compare: bool = True, report: dict 
         '<input type="text" name="model" id="apiModelInput" placeholder="Model (deepseek-chat)">',
         "</div></div>",
         f'<details class="guide-shell" id="caseGuide"{guide_open}>',
-        f'<summary class="guide-summary" id="toggleGuideBtn">{esc(t(lang, "guide_btn"))}'
+        f'<summary class="guide-summary" id="toggleGuideBtn">{esc(t(lang, "guide_btn"))}{guide_count}'
         f'<span class="guide-open" aria-hidden="true">{esc(t(lang, "guide_open"))} ▾</span>'
         f'<span class="guide-close" aria-hidden="true">{esc(t(lang, "guide_close"))} ▴</span></summary>',
         '<div class="guide-body" id="chipsDrawer">',
@@ -1347,6 +1365,15 @@ CLAIM_STEPS = {
                          "Settlement dispute. Keep the agreement versions, messages and proof of performance."),
 }
 
+SCOPE_SIGNALS = {
+    "work_status": ("已说明当前在职状态", "Employment status stated"),
+    "work_arrangement": ("已说明实习用工方式", "Internship arrangement stated"),
+    "unpaid_internship": ("已说明实习报酬与未付情况", "Internship rate and nonpayment stated"),
+    "net_comparison": ("已说明预期和实际到账", "Expected and actual deposits stated"),
+    "work_records": ("已登记用工或考勤材料", "Employment or attendance records listed"),
+    "pay_records": ("已登记工资或到账记录", "Pay or bank records listed"),
+}
+
 
 def scope_panel(report: dict, lang: str) -> str:
     assessment = report["scope_assessment"]
@@ -1356,6 +1383,8 @@ def scope_panel(report: dict, lang: str) -> str:
             "Rule-based estimate from this account and its listed records. The relevant office decides whether to accept a filing.")[idx]
     score = assessment["score"]
     explanation = SCOPE_TEXT[assessment["kind"]][idx]
+    signals = "".join(f'<li>{esc(SCOPE_SIGNALS[key][idx])}</li>' for key in assessment.get("signals", []))
+    reasons = f'<ul class="sub">{signals}</ul>' if signals else ""
     if assessment["kind"] in ("unclear", "unidentified", "rental", "loan", "consumer", "family"):
         explanation = (
             ("已有用工线索，争议事项待明确。", "The account suggests employment. The dispute still needs to be identified.")[idx]
@@ -1366,7 +1395,7 @@ def scope_panel(report: dict, lang: str) -> str:
         f'<section class="card" id="scopeAssessment" aria-labelledby="scopeTitle"><h2 id="scopeTitle">{title}</h2>'
         f'<strong class="scope-number">{score}<small> / 100</small></strong>'
         f'<meter class="scope-meter" min="0" max="100" value="{score}" aria-labelledby="scopeTitle"></meter>'
-        f'<p>{esc(explanation)}</p><p class="sub">{note}</p></section>'
+        f'<p>{esc(explanation)}</p>{reasons}<p class="sub">{note}</p></section>'
     )
 
 
@@ -1407,25 +1436,63 @@ def staged_panel(review: dict, lang: str, print_mode: bool) -> str:
     evidence = review["evidence"]
     month_names = "、".join(review["paid_months"])
     paid_count = review["paid_count"]
+    conversion = review["conversion"]
+    employment_status = {
+        "ongoing": label("仍在职", "Still employed"), "ended": label("已离职", "Employment ended"),
+    }.get(review["employment_status"])
+    if review["conversion_inferred"]:
+        conversion = label(f"约 {conversion}（按实习时长推算）", f"Approx. {conversion} (from internship duration)")
     facts = [
         (label("开始实习", "Internship began"), review["internship"]),
-        (label("转正时间", "Regular role began"), review["conversion"]),
-        (label("口述约定月薪", "Stated monthly pay"), fact_money(review["agreed"])),
-        (label("口述扣款后到账", "Stated net pay"), fact_money(review["net"])),
+        (label("转正时间", "Regular role began"), conversion),
+        (label("在职状态", "Employment status"), employment_status),
+        (label("实习约定月报酬", "Monthly internship pay"), fact_money(review["internship_pay"])),
+        (label("转正约定月薪", "Agreed monthly pay after conversion"), fact_money(review["agreed"])),
+        (label("转正后口述月薪", "Reported monthly pay after conversion"), fact_money(review["actual_wage"])),
+        (label("预期每月到账", "Expected monthly deposit"), fact_money(review["expected_net"])),
+        (label("实际每月到账", "Actual monthly deposit"), fact_money(review["net"])),
         (label("口述已发工资", "Reported paid months"), month_names or (
             label(f"{paid_count} 个月", f"{paid_count} months") if paid_count else None
         )),
     ]
     out = [
         f'<section class="card" aria-labelledby="stagedHeading"><h1 id="stagedHeading">{label("实习与转正欠薪初步分析", "Initial wage assessment")}</h1>'
-        f'<p>{label("你描述了转正及部分工资未付。若转正后实际按公司安排从事有报酬的工作，可向当地劳动仲裁机构核实劳动关系及欠薪。实习阶段如属学校安排，先看实习协议里的报酬约定，可拨 12348 咨询。", "You describe a move to a regular role and unpaid wages. If you performed paid work under the company’s supervision, ask the local arbitration office about employment status and wages. For a school-arranged internship, start with its agreement and ask 12348.")}</p>',
     ]
     if any(value for _, value in facts):
         out.append('<dl class="case-facts">')
         out.extend(f'<div><dt>{name}</dt><dd>{esc(value)}</dd></div>' for name, value in facts if value)
         out.append("</dl>")
-    if review["agreed"] is not None and review["net"] is not None:
-        out.append(f'<p>{label("把约定工资、工资条扣款和银行到账分开核对。约定月薪与扣款后到账金额的差额，需要先核对计薪口径。", "Check the agreed pay, payroll deductions and deposits separately before interpreting the difference.")}</p>')
+    if review["internship_unpaid"]:
+        out.append(f'<h2>{label("实习报酬未发", "Unpaid internship pay")}</h2>')
+        if review["internship_estimate"] is not None:
+            amount = fact_money(review["internship_estimate"])
+            months = review["internship_months"]
+            out.append(f'<p id="caseInternshipEstimate">{label(f"按你说的月报酬，如果 {months} 个完整月均未发，初步核对金额约 {amount}。", f"If none of the {months} full months were paid, the stated rate gives about {amount} to check.")}</p>')
+        if review["arrangement"] == "employer":
+            internship_step = label("你提到公司安排工作或考勤。可保留排班、考勤及薪资约定，向当地劳动仲裁机构核实实习阶段能否认定劳动关系。",
+                                    "You describe company supervision or attendance. Bring those records and pay terms to the arbitration office to check employment status during the internship.")
+        elif review["arrangement"] == "school":
+            internship_step = label("你提到学校安排实习。先对照实习协议的报酬约定，向学校和公司核对付款责任，也可拨 12348 咨询。",
+                                    "You describe a school-arranged internship. Check the agreement, ask the school and company who should pay, and consult 12348.")
+        else:
+            internship_step = label("先按实习约定向公司书面核对。学校安排的实习可带实习协议拨 12348 咨询，公司直接招用和管理的可一并向劳动仲裁机构核实劳动关系。",
+                                    "Confirm the internship agreement with the company in writing. Ask 12348 about school-arranged internships and the arbitration office about work directly supervised by the company.")
+        out.append(f'<p>{internship_step}</p>')
+
+    out.append(f'<h2>{label("转正后工资核对", "Pay after conversion")}</h2>')
+    if review["net_estimate"] is not None:
+        amount = fact_money(review["net_estimate"])
+        out.append(f'<p id="caseNetEstimate">{label(f"如果两笔到账金额对应同一计薪和扣款口径，按口述每月相差约 {amount}。", f"If both deposits use comparable pay and deduction terms, the monthly shortfall is about {amount}.")}</p>')
+    out.append(f'<p>{label("按月比对转正约定、工资条和银行流水，向公司书面要求说明工资标准及扣款。劳动关系及工资约定可以成立时，可带记录向劳动监察或劳动仲裁机构核实补发途径。", "Compare agreed pay terms, payslips and bank records by month, and ask the company to explain deductions in writing. Ask labor inspection or the arbitration office about any remaining shortfall.")}</p>')
+    if review["asks_compensation"]:
+        out.append(f'<h2>{label("能否另要补偿", "Can you seek compensation?")}</h2>')
+        if review["employment_status"] == "ongoing":
+            compensation = label("你说目前仍在职，可以先要求补发工资。经济补偿等请求另看法定条件，以及劳动合同是否、如何解除。",
+                                 "You said you are still employed. You can first ask for unpaid wages. Other compensation depends on legal grounds and whether and how employment ends.")
+        else:
+            compensation = label("工资差额可先按月核对。经济补偿等请求还需看劳动关系、是否解除、解除原因及对应材料。",
+                                 "Check wage shortfalls by month. Other compensation depends on employment status, how and why it ended, and the supporting records.")
+        out.append(f'<p>{compensation}</p>')
     if review["reversed_dates"]:
         first, last = review["first"], review["last"]
         conflict = label(f"你描述的 {first} 到 {last} 顺序有冲突。请核对结束年份，确认前可先核对具体月份。",
@@ -1486,8 +1553,6 @@ def staged_panel(review: dict, lang: str, print_mode: bool) -> str:
             f'</div><p class="sub">{label("按扣款后的同一口径填写，确实没收到时填 0。", "Use amounts after deductions for both fields. Enter 0 if you received nothing.")}</p>'
             f'<button class="btn-primary" type="submit">{label("更新该月差额", "Update this month")}</button></form></details>'
         )
-        if review["gaps"]:
-            out.append(f'<p><a id="continueGuide" class="export-btn" href="#caseGuide" data-open-case-guide>{esc(t(lang, "guide_continue"))}</a></p>')
     out.append("</section>")
     return "".join(out)
 
@@ -1595,7 +1660,11 @@ def render_page(
             ))
         clarification = report.get("clarification")
         if not report.get("staged_review") and clarification:
-            title, reason, records, next_steps, prompts = CLARIFICATION_GUIDES[clarification][lang]
+            title, reason, records, next_steps, _ = CLARIFICATION_GUIDES[clarification][lang]
+            prompts = clarification_prompts(clarification, lang, report.get("case_goal", False))
+            if clarification == "unclear_issue" and report.get("case_goal"):
+                reason = ("已经读到你的诉求。说说单位做了哪件事，就可以据此更新处理建议。"
+                          if lang == "zh" else "Your goal is recorded. Describe what the employer did to get more specific options.")
             questions = [question for _, question, _ in prompts]
             body.append(f'<div class="card ask"><h1>{esc(title)}</h1><p>{esc(reason)}</p>')
             if records:

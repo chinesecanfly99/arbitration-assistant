@@ -48,7 +48,7 @@ def test_unclear_description_requests_clarification():
     assert "total" not in r
 
 
-def test_internship_conversion_wages_need_separate_facts():
+def test_internship_conversion_does_not_reask_known_pay():
     story = (
         "我大四在一家单位实习，暑假通过实习转正。说好一万块钱一个月，"
         "到手只有六千。我工作六个月，老板只发了两个月的工资。"
@@ -57,7 +57,8 @@ def test_internship_conversion_wages_need_separate_facts():
     r = analyze(story, mode="best_effort")
     assert r["status"] == "need_more"
     assert r["clarification"] == "internship_pay"
-    assert len(r["questions"]) == 3
+    assert r["staged_review"]["gaps"] == ["employment"]
+    assert len(r["questions"]) == 1
     assert "total" not in r
 
 
@@ -94,9 +95,45 @@ def test_staged_pay_updates_facts_scope_and_shortfall():
     review = updated["staged_review"]
     assert not review["reversed_dates"]
     assert review["unreviewed"] == ["2025-04", "2025-05"]
-    assert review["difference"] == 5000 and review["gaps"] == ["pay"]
-    assert updated["scope_assessment"]["score"] == 75
+    assert review["difference"] == 5000 and review["gaps"] == []
+    assert updated["scope_assessment"]["score"] == 79
     assert "total" not in updated
+
+
+def test_spoken_internship_wage_routes_and_closes_answered_guides():
+    story = (
+        "我是大四学生，2025年2月在一家公司实习。老板承诺转正工资一万一千块，"
+        "扣除五险一金，到手约七千三百。后来做了六个月实习转正。"
+        "之后。给我的工资是六千块钱啊？每个月到手四千六百块。"
+        "同时实习期间每月为一千四百块钱。的工资并没有发放。"
+        "嗯，公司还没有给我钱我还在职目前。我实习的工资他没有发出来，能赔偿我吗？"
+    )
+    initial = analyze(story)
+    assert initial["scope"]["cause"] == "unpaid_wage"
+    review = initial["staged_review"]
+    assert review["conversion"] == "2025-08" and review["conversion_inferred"]
+    assert (review["agreed"], review["actual_wage"], review["expected_net"], review["net"]) == (11000, 6000, 7300, 4600)
+    assert (review["internship_estimate"], review["net_estimate"]) == (8400, 2700)
+    assert review["employment_status"] == "ongoing"
+    assert review["asks_compensation"]
+    assert review["gaps"] == ["employment"]
+    assert initial["scope_assessment"]["score"] == 82
+
+    updated = analyze(story + "\n实习是我自己找的，公司店长给我排班，我手里有排班表。")
+    assert updated["staged_review"]["arrangement"] == "employer"
+    assert updated["staged_review"]["gaps"] == []
+    assert not updated["questions"]
+    assert updated["scope_assessment"]["score"] == 92
+    repeated = analyze(story + "\n我现在还在职，实习工资他没给。")
+    assert repeated["scope_assessment"] == initial["scope_assessment"]
+
+
+def test_ordinary_wage_supplement_reads_a_spoken_total():
+    story = "我2024年1月10日入职，月薪6000元。我还在上班，工资他没有发出来。"
+    assert analyze(story, mode="best_effort")["clarification"] == "unpaid_amount"
+    reviewed = analyze(story + "这么几个月算下来一共还差一万二千元。", mode="best_effort")
+    assert reviewed["status"] == "ok"
+    assert reviewed["fields"]["unpaid_wages"] == 12000
 
 
 def test_pipeline_out_of_scope_has_no_money():

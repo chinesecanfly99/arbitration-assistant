@@ -100,8 +100,21 @@ def test_staged_pay_shows_analysis_before_followups(server):
     assert "查看初步分析" in html
     assert 'value="70" aria-labelledby="scopeTitle"' in html
     assert 'id="caseEvidenceForm"' in html and 'id="casePayForm"' in html
-    assert "核对期间" in html and 'href="#caseGuide" data-open-case-guide' in html
+    assert "核对期间" in html
+    assert 'id="continueGuide"' not in html
     assert story in html
+
+
+def test_add_answer_skips_already_stated_goal_and_refreshes_review(server):
+    story = "我想要公司给我开一张在职证明。"
+    _, first, _ = fetch(server + "/analyze", {"story": story, "lang": "zh"})
+    assert "单位做了什么" in first and "你想解决什么" not in first
+    assert 'id="reviewSubmit"' in first
+    updated = story + "\n工资他没有发出来，我一个月基本工资六千。"
+    _, second, _ = fetch(server + "/analyze", {"story": updated, "lang": "zh", "review_update": "1", "compare": "1"})
+    assert 'value="85" aria-labelledby="scopeTitle"' in second
+    assert "欠付月份和金额" in second and "单位做了什么" not in second
+    assert 'id="aiReplyBox"' not in second
 
 
 def test_relevance_gives_intake_and_civil_next_steps(server):

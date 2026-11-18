@@ -29,11 +29,12 @@ from .deadline import analyze as analyze_deadlines
 from .evidence import score as evidence_score
 from .extract import extract
 from .gates import one_final_award_note, qualify
-from .i18n import CLARIFICATION_GUIDES, staged_prompts
+from .i18n import CLARIFICATION_GUIDES, clarification_prompts, staged_prompts
 from .map import FIELD_LABELS
 from .reference_cases import recommend
 from .mock_hr import rehearsal
 from .scope import STUDENT_WORK, WORK_TRANSITION, assess_scope, judge
+from .spoken_wage import CASE_GOAL, stated_unpaid_total
 from .staged_pay import review_staged_pay
 
 # 这些字段的 None 表示"用户没说"，不能直接喂给 ClaimInput（None 会顶掉默认值，
@@ -173,8 +174,13 @@ def analyze(
     elif "unpaid_wage" in verdict.causes and STUDENT_WORK.search(story) and WORK_TRANSITION.search(story):
         clarification = "internship_pay"
         staged_review = review_staged_pay(story)
-    elif verdict.causes == ["unpaid_wage"] and not fields.get("unpaid_wages"):
-        clarification = "unpaid_amount"
+    elif verdict.causes == ["unpaid_wage"]:
+        stated_total = stated_unpaid_total(story)
+        if stated_total is not None and sources.get("unpaid_wages") != "confirmed":
+            fields["unpaid_wages"] = float(stated_total)
+            sources["unpaid_wages"] = "story"
+        if not fields.get("unpaid_wages"):
+            clarification = "unpaid_amount"
     scope_assessment = assess_scope(story, verdict, staged_review)
     civil_issue = scope_assessment["kind"] in {"rental", "loan", "consumer", "family"}
     if (not verdict.in_scope and not clarification) or civil_issue:
@@ -216,13 +222,17 @@ def analyze(
         }
 
     if clarification:
-        _, reason, _, _, prompts = CLARIFICATION_GUIDES[clarification]["zh"]
+        _, reason, _, _, _ = CLARIFICATION_GUIDES[clarification]["zh"]
+        case_goal = bool(CASE_GOAL.search(story))
+        prompts = clarification_prompts(clarification, "zh", case_goal)
         if staged_review is not None:
             prompts = staged_prompts(staged_review, "zh")
+            reason = "已根据口述分别分析实习报酬和转正工资，可按需核对具体事项。"
         return {
             **base,
             "status": "need_more",
             "clarification": clarification,
+            "case_goal": case_goal,
             "gates": None,
             "scope": {**base["scope"], "reason": reason},
             "questions": [question for _, question, _ in prompts],

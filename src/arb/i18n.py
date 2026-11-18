@@ -1315,16 +1315,36 @@ CLARIFICATION_GUIDES = {
 
 
 def staged_prompts(review: dict, lang: str) -> list[tuple[str, str, str]]:
-    work = CLARIFICATION_GUIDES["internship_pay"][lang][-1][0]
+    work = (
+        ("实习时由谁安排工作", "实习是学校统一安排，还是公司直接招用、安排岗位和考勤？这会影响实习报酬走哪条途径。",
+         "实习是我自己应聘的，平时由公司主管安排工作和考勤。")
+        if lang == "zh" else
+        ("Who arranged the internship?", "Was this arranged by your school, or did the company hire, assign and supervise you?",
+         "I applied directly and the company assigned and supervised my work.")
+    )
     period = (
         ("核对期间", "请确认欠薪从哪月到哪月。", "核对期间：___年___月到___年___月。")
         if lang == "zh" else
         ("Check the period", "Which months does the wage dispute cover?", "Pay period: YYYY-MM to YYYY-MM.")
     )
     pay = (
-        ("尚未核对的工资", "还有哪些月份没发或少发？可在初步分析里逐月填写。", "")
+        ("工资怎么约定、实际给了多少", "可以口述约定的金额和实际给的金额。知道月份时一起说就行。", "")
         if lang == "zh" else
         ("Remaining pay periods", "Which months were unpaid or underpaid? You can check each month in the assessment.", "")
     )
+    if review["payment_conflict"]:
+        pay = (("核对已发工资月份", "已发月份和口述的月数或期间有出入。请核对哪些月确实收到过工资。", "")
+               if lang == "zh" else ("Check paid months", "Which months were actually paid?", ""))
+    elif review["agreed"] is not None:
+        pay = (("实际收到多少", "已读到约定月薪。按你知道的情况说实际收到多少，或者哪些月份完全没收到。", "")
+               if lang == "zh" else ("Payments received", "State what you received, or which months were unpaid.", ""))
+    elif review["actual_wage"] is not None or review["net"] is not None:
+        pay = (("当时怎么约定工资", "已读到你说的实发金额。如果知道当时约定的工资标准，可以说出金额和税前或税后口径。", "")
+               if lang == "zh" else ("Agreed pay terms", "What pay was agreed, before or after deductions?", ""))
     prompts = {"employment": work, "period": period, "pay": pay}
     return [prompts[gap] for gap in review["gaps"]]
+
+
+def clarification_prompts(kind: str, lang: str, case_goal: bool = False) -> tuple:
+    prompts = CLARIFICATION_GUIDES[kind][lang][-1]
+    return prompts[:1] if kind == "unclear_issue" and case_goal else prompts
