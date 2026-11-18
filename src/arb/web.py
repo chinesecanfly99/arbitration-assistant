@@ -31,6 +31,7 @@ from .compare import (
 from .evidence import rows as evidence_rows, summary as evidence_summary
 from .i18n import (
     BURDEN_EN,
+    CLARIFICATION_GUIDES,
     case_prompt,
     t,
     tr_basis,
@@ -447,9 +448,18 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
     caseGuide.open = false;
     guideSummary.focus();
   }});
-  var continueGuide = document.getElementById('continueGuide');
-  if (continueGuide) continueGuide.addEventListener('click', function () {{
-    caseGuide.open = true;
+  document.querySelectorAll('[data-open-case-guide]').forEach(function (link) {{
+    link.addEventListener('click', function (e) {{
+      e.preventDefault();
+      caseGuide.open = true;
+      if (selectedChip) {{
+        guidePrompt.focus({{preventScroll: true}});
+        guidePrompt.scrollIntoView({{block: 'nearest'}});
+      }} else {{
+        var firstQuestion = guide.querySelector('#guideSuggestions button');
+        if (firstQuestion) firstQuestion.click();
+      }}
+    }});
   }});
   var apiBtn = document.getElementById('toggleApiBtn');
   apiBtn.addEventListener('click', function () {{
@@ -782,6 +792,9 @@ def chips_html(lang: str = "zh", exclude: tuple[str, ...] = ()) -> str:
 def followup_chips(report: dict | None, lang: str) -> list[str]:
     if not report or report["status"] not in ("ok", "need_more"):
         return []
+    if report.get("clarification"):
+        _, _, _, _, prompts = CLARIFICATION_GUIDES[report["clarification"]][lang]
+        return [guide_chip(title, question, example, css="chip fill") for title, question, example in prompts]
     missing = report.get("missing", [])
     sources = report.get("sources", {})
     suggestions = []
@@ -1113,12 +1126,17 @@ def compare_html(
             out.append(f'<div class="pro-item">✓ {esc(t(lang, "kpi_deadline"))}: {esc(d["deadline"])} ({esc(left)})</div>')
         out.append("</div>")
     elif status == "need_more":
-        comp = completeness(report.get("fields") or {})
-        msg = f'Refused to Guess ({int(comp["score"] * 100)}% Complete)' if lang != "zh" else f'已拒绝瞎猜（完整度 {int(comp["score"] * 100)}%）'
-        out.append(f'<div class="hero-total" style="color:#d97706">{esc(msg)}</div>')
-        qs = [tr_question(lang, q) for q in (report.get("questions") or [])]
+        if report.get("clarification"):
+            title, reason, _, _, prompts = CLARIFICATION_GUIDES[report["clarification"]][lang]
+            qs = [reason] + [question for _, question, _ in prompts[:2]]
+        else:
+            title = t(lang, "need_more_title")
+            qs = [tr_question(lang, q) for q in (report.get("questions") or [])]
+        out.append(f'<div class="hero-total" style="color:#92400e">{esc(title)}</div>')
         out.append(f'<div class="cmp-reply">{esc(chr(10).join("· " + q for q in qs))}</div>')
-        out.append(f'<div class="flaw-list"><div class="pro-item">✓ {esc(t(lang, "need_more_sub"))}</div></div>')
+        out.append(
+            f'<p><a class="export-btn" href="#caseGuide" data-open-case-guide>{esc(t(lang, "guide_continue"))}</a></p>'
+        )
     elif status == "out_of_scope":
         out.append(f'<div class="hero-total" style="color:#d97706">{esc(t(lang, "out_scope_title"))}</div>')
         reason, redir, _ = tr_scope_out(lang, report)
@@ -1321,20 +1339,35 @@ def render_page(
                 async_pending=bool((async_compare or {}).get("pending")),
                 model_name=(cfg or {}).get("model", "deepseek-chat"),
             ))
-        body.append(
-            f'<div class="card ask"><h1>{esc(t(lang, "need_more_title"))}</h1>'
-            f'<h2>{esc(t(lang, "need_more_sub"))}</h2>'
-        )
-        if print_mode:
-            for q in report["questions"]:
-                body.append(f'<p style="margin:4px 0">· {esc(tr_question(lang, q))}</p>')
+        clarification = report.get("clarification")
+        if clarification:
+            title, reason, records, next_steps, prompts = CLARIFICATION_GUIDES[clarification][lang]
+            questions = [question for _, question, _ in prompts]
+            body.append(f'<div class="card ask"><h1>{esc(title)}</h1><p>{esc(reason)}</p>')
+            if records:
+                body.append(f'<p>{esc(records)}</p>')
+            if next_steps:
+                body.append(f'<p>{esc(next_steps)}</p>')
         else:
-            body.append(f'<p><a id="continueGuide" href="#caseGuide">{esc(t(lang, "guide_continue"))}</a></p>')
+            questions = [tr_question(lang, q) for q in report["questions"]]
+            body.append(
+                f'<div class="card ask"><h1>{esc(t(lang, "need_more_title"))}</h1>'
+                f'<p>{esc(t(lang, "need_more_sub"))}</p>'
+            )
+        if print_mode:
+            for q in questions:
+                body.append(f'<p style="margin:4px 0">· {esc(q)}</p>')
+        else:
+            body.append(
+                f'<p><a id="continueGuide" class="export-btn" href="#caseGuide" data-open-case-guide>'
+                f'{esc(t(lang, "guide_continue"))}</a></p>'
+            )
         if lang == "zh":
             for x in report.get("relative") or []:
                 body.append(f'<p style="margin:4px 0">· {esc(x)}</p>')
         body.append("</div>")
-        body.append(map_html(report.get("fields") or {}, lang=lang))
+        if not clarification:
+            body.append(map_html(report.get("fields") or {}, lang=lang))
         body.append(gates_html(report.get("gates"), lang=lang))
         body.append(pending_html(report.get("pending") or [], story, lang=lang))
     else:

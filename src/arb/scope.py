@@ -47,13 +47,25 @@ CAUSE_RULES = [
     ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"二倍工资", r"双倍工资", r"补签", r"一直没签", r"两份都收走", r"都收走了", r"(?i)\b(?:no|without|never\s+signed)\b.{0,20}\bcontract\b"]),
     ("overtime", [r"加班", r"周末上班", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班", r"(?i)\bovertime\b"]),
     ("annual_leave", [r"年假", r"年休假", r"(?i)\bannual\s+leave\b"]),
-    ("unpaid_wage", [r"拖欠", r"欠.{0,12}工资", r"没发工资", r"工资.{0,6}(?:没发|没结|没给|欠着|未发|未结)", r"扣工资", r"克扣", r"(?i)\bunpaid\s+(?:wage|wages|salary)\b"]),
+    ("unpaid_wage", [
+        r"拖欠|欠.{0,12}工资|没发工资|工资.{0,6}(?:没发|没结|没给|欠着|未发|未结)|扣工资|克扣",
+        r"(?:只|仅)(?:发|给|支付)(?:了|过)?\s*[零一二两三四五六七八九十\d]+\s*个?月(?:份)?的?工资",
+        r"(?i)\bunpaid\s+(?:wage|wages|salary)\b"
+        r"|\b(?:only\s+paid|paid\s+for\s+only)\b[^.!?\n]{0,24}\bmonths?\b",
+    ]),
     ("severance", [r"经济补偿", r"补偿金", r"裁员", r"协商解除", r"到期不续", r"合同到期", r"(?i)\b(?:severance|restructuring|contract\s+expired)\b"]),
     ("pregnant_protection", [r"怀孕", r"孕期", r"产假", r"哺乳期", r"三期", r"(?i)\bpregnant|pregnancy\b"]),
     ("mutual_agreement", [r"协商一致", r"谈好", r"签了协议", r"(?i)\bmutual\s+agreement\b"]),
 ]
 
 DEPARTMENT = "用工所在地或用人单位所在地的劳动人事争议仲裁委员会"
+
+# A single wage calculation cannot safely combine an internship and later employment.
+STUDENT_WORK = re.compile(r"实习|在校(?:生|学生)?|大[一二三四]|(?i:\bintern(?:ship)?\b|\bstudent\b)")
+WORK_TRANSITION = re.compile(
+    r"转正|转为正式员工|转为全职|毕业后.{0,10}(?:留用|继续工作)"
+    r"|(?i:\b(?:converted|transitioned|moved)\s+to\s+full[- ]time\b|\bbecame\s+a\s+full[- ]time\s+employee\b)"
+)
 
 
 @dataclass

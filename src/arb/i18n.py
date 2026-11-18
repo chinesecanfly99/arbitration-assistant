@@ -1222,3 +1222,93 @@ def case_prompt(lang: str, term: str) -> tuple[str, str]:
     if prompts:
         return prompts[lang]
     return t(lang, "guide_question"), ""
+
+
+CLARIFICATION_GUIDES = {
+    "unclear_issue": {
+        "zh": (
+            "先补充发生了什么",
+            "现有描述还不足以判断争议事项。请补充单位做了什么，以及你希望解决什么。",
+            "",
+            "",
+            (
+                ("单位做了什么", "单位哪天做了什么？现在还在职吗？",
+                 "___月___日，单位___。我现在___。"),
+                ("你想解决什么", "你希望补发工资、继续上班、拿到证明，还是解决其他问题？",
+                 "我希望单位___，涉及___这段时间。"),
+            ),
+        ),
+        "en": (
+            "Tell us what happened",
+            "The description does not yet identify the dispute. Explain what the employer did and what you would like to resolve.",
+            "",
+            "",
+            (
+                ("Employer’s action", "What did the employer do, when did it happen, and are you still working there?",
+                 "On ___, my employer ___. I am currently ___."),
+                ("What you want resolved", "Are you seeking unpaid wages, continued employment, a document, or something else?",
+                 "I am asking my employer to ___ for the period ___."),
+            ),
+        ),
+    },
+    "internship_pay": {
+        "zh": (
+            "已识别欠薪线索，请分开核对实习和转正",
+            "这段描述涉及实习和转正。需要先确认你在哪个阶段工作、如何受单位管理，以及欠付发生在哪几个月。"
+            "在校身份本身不能决定是否存在劳动关系。",
+            "先保存实习协议、劳动合同或转正通知、约定薪资的聊天记录、排班考勤、每月工资条和银行流水。"
+            "工资承诺和到账金额要核对税前、税后及扣款口径，再判断哪些月份少发。",
+            "如果争议涉及劳动关系或劳动报酬，可带着这些资料向当地劳动仲裁机构核实。"
+            "如果涉及实习协议报酬，可拨 12348 核实处理途径。"
+            "当前测算一次处理一段用工，试算时请单独填写该阶段的日期、工资约定和欠付金额。",
+            (
+                ("实习和转正时间", "实习何时开始和结束？是否学校安排？从哪天起按正式岗位上班、由谁排班或考勤？现在还在职吗？",
+                 "实习从___到___，由___安排。___起我在___岗位工作，由___管理排班，我现在___。"),
+                ("逐月工资", "哪几个月没发、哪些月少发？分别属于实习还是转正后？请按同一口径写每月应发、实发和扣款。",
+                 "___月属于___阶段，应发___元，实发___元，扣款项目及金额是___。"),
+                ("工资和转正证据", "工资约定、转正日期和实际付款分别能用哪些材料核对？",
+                 "我有___记录工资约定，有___记录转正日期，有___记录各月到账。"),
+            ),
+        ),
+        "en": (
+            "Possible unpaid wages across internship and employment",
+            "The description covers an internship and later employment. Identify the work arrangement and supervision in each period, "
+            "and which months were affected. Student status alone does not settle whether an employment relationship existed.",
+            "Keep the internship agreement, employment contract or conversion notice, pay messages, schedules, attendance, payslips and bank records. "
+            "Compare gross pay, net pay and deductions on a consistent basis.",
+            "If the dispute concerns employment status or wages under an employment relationship, ask the local labor arbitration office. "
+            "For pay under an internship agreement, ask public legal services (12348) about the appropriate route. "
+            "The calculator handles one period at a time. To estimate an amount, enter the dates, agreed pay, and unpaid amount for that period separately.",
+            (
+                ("Work periods", "When did the internship begin and end? Who arranged it? When did the regular role start, who managed your work, and are you still employed?",
+                 "My internship was ___ to ___ and was arranged by ___. I started the regular role on ___ and was supervised by ___."),
+                ("Monthly pay", "Which months were unpaid or underpaid, and in which period? List amounts due, amounts received and deductions on a consistent basis.",
+                 "Month ___ was in the ___ period. Pay due was ___ RMB, received ___ RMB and deductions were ___."),
+                ("Supporting records", "What records support the agreed pay, date of conversion and amounts received?",
+                 "___ shows the agreed pay, ___ shows the conversion date, and ___ shows the payments."),
+            ),
+        ),
+    },
+    "unpaid_amount": {
+        "zh": (
+            "已识别欠薪线索，请补充未付金额",
+            "已识别到工资未付或少付的描述。请把涉及月份和应发、实发金额对应起来。",
+            "可对照工资条、银行流水和工资约定，核对每月应发、扣除和到账金额。",
+            "",
+            (
+                ("欠付月份和金额", "哪些月份少发或没发？请写下各月应发、实际到账和扣款。能确定时，再写明合计欠工资多少元。",
+                 "___月应发___元、实发___元、扣款___元。经核对，合计欠工资___元。"),
+            ),
+        ),
+        "en": (
+            "Possible unpaid wages. Please add the amounts.",
+            "The description indicates unpaid or underpaid wages. Match the amounts owed and received to the affected months.",
+            "Check the agreed amounts, payslips, deductions, and bank payments for each month.",
+            "",
+            (
+                ("Unpaid months and amounts", "Which pay periods were unpaid or underpaid? List pay due, payments and deductions. Give the total unpaid wages if you can verify it.",
+                 "For ___ month, ___ RMB was due, ___ RMB was received and ___ RMB was deducted. Verified unpaid wages total ___ RMB."),
+            ),
+        ),
+    },
+}

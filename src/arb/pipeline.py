@@ -29,10 +29,11 @@ from .deadline import analyze as analyze_deadlines
 from .evidence import score as evidence_score
 from .extract import extract
 from .gates import one_final_award_note, qualify
+from .i18n import CLARIFICATION_GUIDES
 from .map import FIELD_LABELS
 from .reference_cases import recommend
 from .mock_hr import rehearsal
-from .scope import judge
+from .scope import STUDENT_WORK, WORK_TRANSITION, judge
 
 # 这些字段的 None 表示"用户没说"，不能直接喂给 ClaimInput（None 会顶掉默认值，
 # 例如 has_written_contract=None 会让二倍工资被误触发）。缺失时用规则的默认值。
@@ -164,7 +165,14 @@ def analyze(
             assumptions.append("未说明离职日期，暂按今天计（工龄会算多，务必确认）")
 
     verdict = judge(story, fields)
-    if not verdict.in_scope:
+    clarification = None
+    if verdict.cause == "unknown":
+        clarification = "unclear_issue"
+    elif "unpaid_wage" in verdict.causes and STUDENT_WORK.search(story) and WORK_TRANSITION.search(story):
+        clarification = "internship_pay"
+    elif verdict.causes == ["unpaid_wage"] and not fields.get("unpaid_wages"):
+        clarification = "unpaid_amount"
+    if not verdict.in_scope and not clarification:
         return {
             "status": "out_of_scope",
             "story": story,
@@ -177,7 +185,7 @@ def analyze(
         }
 
     # ---------- 三层闸门：能不能进门 ----------
-    gates = qualify(story, fields, verdict, today=today, city=city)
+    gates = qualify(story, fields, verdict, today=today, city=city) if verdict.in_scope else None
     base = {
         "status": "ok",
         "story": story,
@@ -191,12 +199,24 @@ def analyze(
         "assumptions": assumptions,
     }
 
-    if gates["blockers"]:
+    if gates and gates["blockers"]:
         return {
             **base,
             "status": "blocked",
             "blockers": gates["blockers"],
             "questions": [],
+            "missing": [],
+        }
+
+    if clarification:
+        _, reason, _, _, prompts = CLARIFICATION_GUIDES[clarification]["zh"]
+        return {
+            **base,
+            "status": "need_more",
+            "clarification": clarification,
+            "gates": None,
+            "scope": {**base["scope"], "reason": reason},
+            "questions": [question for _, question, _ in prompts],
             "missing": [],
         }
 

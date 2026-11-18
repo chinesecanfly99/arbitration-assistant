@@ -92,6 +92,17 @@ def test_post_out_of_scope(server):
     assert "不归劳动仲裁管" in html_zh
 
 
+def test_staged_pay_has_a_followup_from_both_result_cards(server):
+    story = "我实习后转正，月薪约定和到账不同，工作六个月，老板只发了两个月的工资。"
+    _, html, _ = fetch(server + "/analyze", {"story": story, "lang": "zh", "compare": "1"})
+    assert "已识别欠薪线索，请分开核对实习和转正" in html
+    assert "这件事不归劳动仲裁管" not in html
+    assert html.count('href="#caseGuide" data-open-case-guide') == 2
+    assert "逐月工资" in html and "工资和转正证据" in html
+    assert "银行流水" in html
+    assert story in html
+
+
 def test_application_download(server):
     code, body, headers = fetch(server + "/application?story=" + urllib.parse.quote(STORY))
     assert code == 200

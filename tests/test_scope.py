@@ -40,6 +40,37 @@ def test_unknown_story_refuses_with_guidance():
     assert v.hints, "连要素都抽不到时，要告诉用户该补充什么"
 
 
+def test_unclear_description_requests_clarification():
+    r = analyze("我和单位发生了纠纷，想问怎么办。", mode="best_effort")
+    assert r["status"] == "need_more"
+    assert r["clarification"] == "unclear_issue"
+    assert r["questions"]
+    assert "total" not in r
+
+
+def test_internship_conversion_wages_need_separate_facts():
+    story = (
+        "我大四在一家单位实习，暑假通过实习转正。说好一万块钱一个月，"
+        "到手只有六千。我工作六个月，老板只发了两个月的工资。"
+    )
+    assert judge(story).cause == "unpaid_wage"
+    r = analyze(story, mode="best_effort")
+    assert r["status"] == "need_more"
+    assert r["clarification"] == "internship_pay"
+    assert len(r["questions"]) == 3
+    assert "total" not in r
+
+
+def test_partial_wage_payment_prompts_for_amount_then_calculates():
+    story = "我2024年1月10日入职，月薪6000元。做了六个月，公司只发了两个月工资。我仍在职。"
+    partial = analyze(story, mode="best_effort")
+    assert partial["clarification"] == "unpaid_amount"
+    assert "total" not in partial
+    complete = analyze(story + "我核对了流水，合计欠工资24000元。", mode="best_effort")
+    assert complete["status"] == "ok"
+    assert [item["amount"] for item in complete["items"] if item["name"] == "拖欠工资"] == [24000]
+
+
 def test_pipeline_out_of_scope_has_no_money():
     r = analyze("我上班路上被车撞了，公司说这不是工伤。")
     assert r["status"] == "out_of_scope"
