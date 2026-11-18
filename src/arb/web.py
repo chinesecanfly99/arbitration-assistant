@@ -490,8 +490,12 @@ def console_js(lang: str, async_compare: dict | None = None) -> str:
         answer = '年假还剩' + answer + (answer.endsWith('天') ? '' : '天') + '。';
       }} else if (topic === 'paid_days' && /^(?:[0-9]+(?:\\.[05])?|[一二两三四五六七八九十]+)\\s*天?$/.test(answer)) {{
         answer = '本期计薪' + answer + (answer.endsWith('天') ? '' : '天') + '。';
+      }} else if (topic === 'unsigned_workdays' && /^[0-9一二两三四五六七八九十]+\\s*(?:天|个工作日)?$/.test(answer)) {{
+        answer = '未签合同期间实际工作' + answer + (/天|工作日/.test(answer) ? '' : '天') + '。';
       }} else if (topic === 'hire_date' && /^20\\d{{2}}年\\s*\\d{{1,2}}月(?:\\s*\\d{{1,2}}[日号])?$/.test(answer)) {{
         answer = '入职日期是' + answer + '。';
+      }} else if (topic === 'end_date' && /^20\\d{{2}}年\\s*\\d{{1,2}}月\\s*\\d{{1,2}}[日号]$/.test(answer)) {{
+        answer = '我于' + answer + '离职。';
       }} else if (topic === 'effective_date' && /^20\\d{{2}}年\\s*\\d{{1,2}}月\\s*\\d{{1,2}}[日号]$/.test(answer)) {{
         answer = '解除生效日期是' + answer + '。';
       }} else if (topic === 'injury_recognition' && /^(已提交|已申请|还没申请|尚未申请)$/.test(answer)) {{
@@ -1485,6 +1489,12 @@ def known_case_facts(report: dict, lang: str) -> str:
 def dispute_checks(review: dict, lang: str) -> list[str]:
     idx = int(lang != "zh")
     lines = []
+    if review["employment"]:
+        lines.append(("先核对实际管理和支付主体，再区分劳动关系、合作协议及各方责任。", "Check who controlled work and paid, then assess the employment relationship or contractual obligations.")[idx])
+    if review["contract"]:
+        lines.append(("二倍工资先核对已有协议、未签原因及实际用工期间。", "Check the existing agreement, reasons it was not signed and actual employment period first.")[idx])
+    if review["noncompete"]:
+        lines.append(("竞业限制先核对实际接触的保密事项、限制范围和补偿。", "Check access to confidential information, scope and payment for the restriction.")[idx])
     if review["pay"]:
         lines.append((
             "工资按本期应发和已发核对。计薪记录、工资条和流水会影响这一项的金额。",
@@ -1506,6 +1516,58 @@ def dispute_checks(review: dict, lang: str) -> list[str]:
 DISMISSAL_LAW_URL = "https://www.mohrss.gov.cn/xxgk2020/fdzdgknr/zcfg/fl/202011/t20201102_394622_wap.html"
 WAGE_DAY_URL = "https://www.mohrss.gov.cn/SYrlzyhshbzb/laodongguanxi_/zcwj/202501/t20250101_533693.html"
 INJURY_LAW_URL = "https://xzfg.moj.gov.cn/front/law/detail?LawID=610"
+PLATFORM_CASES_URL = "https://www.court.gov.cn/zixun/xiangqing/450651.html"
+INTERPRETATION_URL = "https://www.court.gov.cn/zixun/xiangqing/472691.html"
+BENEFITS_CASES_URL = "https://www.court.gov.cn/zixun/xiangqing/462311.html"
+
+
+def prerequisite_sections(review: dict, lang: str) -> list[str]:
+    def text(zh: str, en: str) -> str:
+        return zh if lang == "zh" else en
+
+    rows = []
+    employment = review["employment"]
+    if employment:
+        rows.append(f'<h2>{text("判断劳动关系和责任主体", "Check the relationship and responsible parties")}</h2>')
+        if employment["management"]:
+            rows.append(f'<p>{text("口述里已有公司安排班次、考核、定价或限制接单等线索，可用规则原文和实际记录核对控制程度。", "Your account describes controls such as schedules, penalties, pricing or orders. Check the actual rules and records.")}</p>')
+        if employment["autonomy"]:
+            rows.append(f'<p>{text("口述里也有自主接单、决定时间、直接收款或协商分成等线索。核对这些决定权能否实际行使。", "Your account also suggests freedom to choose orders, hours, payment or revenue-sharing. Check how much discretion you exercised in practice.")}</p>')
+        rows.append(f'<p>{text("公司持续决定任务、工时和报酬时，可带材料向仲裁机构核对劳动关系。工作与定价主要由自己决定时，也可按合作协议核对结算和民事途径。", "If an enterprise consistently controls work, time and pay, ask the arbitration office about employment status. If you largely control the work or rates, check payment and civil options under the agreement.")}</p>')
+        if employment["multiple"]:
+            rows.append(f'<p>{text("签约、管理、支付或参保主体不同时，分别记录公司名称及对应凭据。挂靠、违法转包的用工主体责任可单独核对。", "Record the party responsible for contracting, management, payment and insurance. Check responsibility separately where there is affiliation or unlawful subcontracting.")}</p>')
+        rows.append(f'<p><a href="{PLATFORM_CASES_URL}">{text("最高法指导性案例 237–240 号", "SPC Guiding Cases 237–240")}</a> · <a href="{INTERPRETATION_URL}">{text("劳动争议司法解释（二）第 1–3 条", "Labor dispute interpretation II, Arts. 1–3")}</a></p>')
+    contract = review["contract"]
+    if contract:
+        rows.append(f'<h2>{text("二倍工资的前置条件", "Prerequisites for double wages")}</h2>')
+        if contract["other_agreement"]:
+            rows.append(f'<p>{text("核对已经签署的书面协议是否具备岗位、报酬、期限等劳动合同内容，并对照实际履行情况。", "Check whether the signed agreement sets out duties, pay and duration and how it was carried out.")}</p>')
+        if contract["refusal"]:
+            rows.append(f'<p>{text("核对单位是否及时送达可签的合同、续签条件是否变化，以及拒签的原因。劳动者故意或重大过失导致未签的例外，需要由单位举证。", "Check whether a signable contract was sent in time, whether terms changed, and why it was refused. The employer must prove intentional refusal or gross fault for the exception.")}</p>')
+        if employment:
+            rows.append(f'<p>{text("先核对是否存在劳动关系及责任主体，再评估二倍工资的条件和期间。", "Check employment status and the responsible party before estimating eligibility and time periods.")}</p>')
+        partial = contract.get("partial")
+        if partial:
+            window = f"{partial['start']} – {partial['end']}"
+            rows.append(f'<p>{text("需核对的未签期间", "Unsigned period to check")} <strong>{window}</strong></p>')
+            estimate = partial["estimate"]
+            if estimate is None:
+                rows.append(f'<p>{text("期间不满整月时，按对应期间的实际工作日核对差额。", "For this partial period, check the actual days worked before estimating the additional pay.")}</p>')
+            elif not employment and not (contract["refusal"] or contract["other_agreement"]):
+                rows.append(f'<p>{text("若符合二倍工资条件，按所填工作日暂估", "If the claim qualifies, the entered workdays give")} <strong id="unsignedEstimate">¥{_money(estimate)}</strong></p>')
+        if contract.get("uncertain_end") and not employment and not (contract["refusal"] or contract["other_agreement"]):
+            low, high = contract["uncertain_end"]
+            rows.append(f'<p>{text("离职只说到月份，具体日期会改变未签期间。按月初和月末分别试算，仅整月部分为", "Only the departure month is known. Using the first and last day of that month, the full-month component ranges from")} <strong>¥{_money(low)} – ¥{_money(high)}</strong></p>')
+        rows.append(f'<p><a href="{INTERPRETATION_URL}">{text("劳动争议司法解释（二）第 6–9 条", "Labor dispute interpretation II, Arts. 6–9")}</a> · <a href="https://www.court.gov.cn/shenpan/xiangqing/364631.html">{text("最高法指导案例 179 号", "SPC Guiding Case 179")}</a></p>')
+    if review["noncompete"]:
+        rows.append(f'<h2>{text("竞业限制", "Non-compete restrictions")}</h2>')
+        rows.append(f'<p>{text("先核对岗位实际接触的商业秘密或相关保密事项，再看行业、地域和期限。区分在职限制与离职后限制，离职后的争议还要核对补偿约定和实际支付。", "Check the confidential information actually accessed and whether the industry, area and duration match it. Distinguish on-job restrictions from post-employment restrictions, and check payments after departure.")}</p>')
+        rows.append(f'<p><a href="{INTERPRETATION_URL}">{text("劳动争议司法解释（二）第 13–15 条", "Labor dispute interpretation II, Arts. 13–15")}</a></p>')
+    if review["social_loss"]:
+        rows.append(f'<h2>{text("社保待遇损失或垫付款", "Loss of benefits or out-of-pocket contributions")}</h2>')
+        rows.append(f'<p>{text("先向社保经办机构核对欠缴记录、能否补办和待遇核定原因。再拿缴费、垫付凭据或待遇核定单，核对对单位的返还或损失赔偿请求。", "Ask the insurer to confirm the contribution shortfall, whether it can be corrected and how benefits were assessed. Use receipts or the assessment to check a separate reimbursement or loss claim.")}</p>')
+        rows.append(f'<p><a href="{BENEFITS_CASES_URL}">{text("人社部、最高法第四批典型案例 3–4", "Joint model cases 3–4 on social insurance")}</a></p>')
+    return rows
 
 
 def issue_breakdown_panel(report: dict, lang: str) -> str:
@@ -1520,6 +1582,7 @@ def issue_breakdown_panel(report: dict, lang: str) -> str:
         f'<section class="card" id="issueBreakdown"><h1>{label("多项争议分开核对", "Review each issue separately")}</h1>',
         f'<p class="sub">{label("各项的依据、办理途径和金额条件列在下面。确认新的事实后，相应项目会更新。", "Check the facts, procedures and assumptions for each issue. Each item updates when you add information.")}</p>',
     ]
+    out.extend(prerequisite_sections(review, lang))
     pay = review["pay"]
     wage = review["monthly_wage"]
     if pay:
@@ -1605,12 +1668,16 @@ def issue_breakdown_panel(report: dict, lang: str) -> str:
         out.append(
             f'<h2>{label("受伤与工伤办理", "Injury and work-injury procedures")}</h2>'
             f'<p>{label("先核对事故与工作的关系、伤情和工伤认定进度。怀疑因工作受伤时，可向当地人社局工伤科咨询；保留事故记录、就诊资料和用工证明。", "Check whether the accident was connected to work and the status of any application. Ask the local human resources and social security office about recognition, and keep accident, medical and employment records.")}</p>'
-            f'<p>{label("通常由单位在事故发生后 30 日内申请。单位未申请时，职工一方一般可在 1 年内申请。停工留薪和其他待遇结合认定、医疗资料及适用条件另行核对。", "The employer generally applies within 30 days. If it does not, workers generally have one year to apply. Check paid medical leave and other benefits against the decision, medical records and applicable conditions.")}</p>'
             f'<p><a href="{INJURY_LAW_URL}">{label("《工伤保险条例》第 17、33 条", "Work Injury Insurance Regulations, Arts. 17 and 33")}</a></p>'
         )
+        if review["recognition"] in (None, "not_filed"):
+            out.append(f'<p>{label("单位通常应在事故发生后 30 日内申请。单位未申请时，职工一方一般可在 1 年内申请。", "Employers normally apply within 30 days. Workers generally have one year if the employer does not apply.")}</p>')
         if status:
             out.append(f'<p id="reviewInjuryStatus">{status}</p>')
-    if report.get("redirect") and review["administrative"] != "工伤":
+        if review["injury_extension"]:
+            out.append(f'<p>{label("已有认定时，核对原停工留薪期和市级劳动能力鉴定委员会的延长确认。医院病休证明可作为申请材料，留薪期待遇以规定和相关确认核对。", "When injury is already recognized, check the original paid-leave period and any extension confirmed by the municipal work-capacity committee. Use the medical certificate as supporting evidence.")}</p>')
+            out.append(f'<p><a href="{BENEFITS_CASES_URL}">{label("人社部、最高法第四批典型案例 1", "Joint model case 1 on paid medical leave")}</a></p>')
+    if report.get("redirect") and review["administrative"] != "工伤" and not review["social_loss"]:
         _, redirect, _ = tr_scope_out(lang, report)
         out.append(f'<h2>{label("其他办理事项", "Other procedures")}</h2><p>{esc(redirect)}</p>')
     extras = [cause for cause in report["scope"]["causes"] if cause not in ("unpaid_wage", "illegal_dismissal", "severance", "mutual_agreement") and cause in CLAIM_STEPS]

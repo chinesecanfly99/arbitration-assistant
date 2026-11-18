@@ -29,8 +29,8 @@ from .scope import Verdict
 
 # 《劳动争议调解仲裁法》第二条六类受案范围 → 本项目案由
 ARTICLE_2 = [
-    (1, "因确认劳动关系发生的争议", {"unknown"}),
-    (2, "因订立、履行、变更、解除和终止劳动合同发生的争议", {"double_wage", "severance", "mutual_agreement"}),
+    (1, "因确认劳动关系发生的争议", {"unknown", "employment_relationship"}),
+    (2, "因订立、履行、变更、解除和终止劳动合同发生的争议", {"double_wage", "severance", "mutual_agreement", "noncompete"}),
     (3, "因除名、辞退和辞职、离职发生的争议", {"illegal_dismissal"}),
     (4, "因工作时间、休息休假、社会保险、福利、培训以及劳动保护发生的争议", {"overtime", "annual_leave", "pregnant_protection"}),
     (5, "因劳动报酬、工伤医疗费、经济补偿或者赔偿金等发生的争议", {"unpaid_wage", "severance"}),

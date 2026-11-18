@@ -1,0 +1,54 @@
+{
+  "source": {
+    "url": "https://github.com/oneal2000/STARD",
+    "revision": "bae10e1f358685446c3af4b15e7b94724f83bc9e",
+    "license": "MIT",
+    "sha256": "e64dcdbda5d2b734a7242253620dcf5e8325a3d726f0ca0a86e9b3664b8ba644"
+  },
+  "input_rows": 1543,
+  "deduplicated": 1543,
+  "train": {
+    "total": 1103,
+    "stard": 1079,
+    "positive": 81,
+    "court_cases": 24
+  },
+  "validation": {
+    "total": 231,
+    "positive": 12,
+    "tp": 12,
+    "fp": 1,
+    "fn": 0,
+    "precision": 0.9231,
+    "recall": 1.0
+  },
+  "held_out_model": {
+    "total": 233,
+    "positive": 13,
+    "tp": 12,
+    "fp": 1,
+    "fn": 1,
+    "precision": 0.9231,
+    "recall": 0.9231
+  },
+  "held_out_rules": {
+    "total": 233,
+    "positive": 13,
+    "tp": 13,
+    "fp": 3,
+    "fn": 0,
+    "precision": 0.8125,
+    "recall": 1.0
+  },
+  "held_out_combined": {
+    "total": 233,
+    "positive": 13,
+    "tp": 13,
+    "fp": 3,
+    "fn": 0,
+    "precision": 0.8125,
+    "recall": 1.0
+  },
+  "threshold": 0.72,
+  "enabled": false
+}

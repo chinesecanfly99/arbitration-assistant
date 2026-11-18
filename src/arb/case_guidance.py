@@ -49,6 +49,30 @@ PROMPTS = {
         ("工伤认定到了哪一步", "事故是在工作中发生的吗？工伤认定是尚未申请、已提交，还是已经拿到决定书？", "我于___在___受伤，工伤认定目前___。", "可先留存事故记录、病历和申请回执。"),
         ("Work injury decision", "Was the injury work-related, and have you applied for or received a decision?", "I was injured on ___ at ___. The work-injury application is ___.", "Keep the accident report, medical records and application receipt."),
     ),
+    "work_management": (
+        ("谁安排工作、谁发钱", "谁决定上班时间、工作量和奖惩？签协议、安排工作、付款的分别是哪一方？", "我与___签约，工作时间和任务由___决定，报酬由___支付，我对接单和定价的自主程度为___。", "可以查看协议、派单规则、排班、转账方和扣罚记录。"),
+        ("Who controlled and paid for work?", "Who set schedules, tasks and penalties? Who signed the agreement and who paid?", "I contracted with ___. ___ set work conditions and ___ paid me. My control over orders and rates was ___.", "Check the agreement, dispatch rules, schedules and payment records."),
+    ),
+    "agreement_contents": (
+        ("那份协议写了什么", "合作协议里写了岗位、工资、期限吗？平时实际上又是怎么做的？", "双方签订___协议，约定工作内容___、报酬___、期限___。实际履行为___。", "可以先找协议原件和工资、请假记录。"),
+        ("What did the agreement cover?", "Did the agreement set your duties, pay and term? How did the work actually operate?", "The written agreement set duties as ___, pay as ___ and term as ___. In practice, ___.", "Keep the agreement and actual pay and work records."),
+    ),
+    "signing_record": (
+        ("公司怎么通知签约", "公司什么时候把合同和续签条件发给你？你当时是怎么回复的？", "用人单位于___发送签约通知及条款___，我于___回复___。", "可保留完整通知、合同草稿和双方回复。"),
+        ("What offer was sent?", "When did the employer send the contract and terms, and what was your response?", "The employer sent the contract on ___ with terms ___. I responded on ___ that ___.", "Keep the notice, draft and full conversation."),
+    ),
+    "unsigned_workdays": (
+        ("未签期间实际干了几天", "这里只核对超过法定签约期限后、到离职之间的实际工作日，有几天？", "未签合同期间实际工作___个工作日。", "可对照考勤，区分实际出勤与期间内的日历天数。"),
+        ("Days actually worked", "How many days did you work in the relevant unsigned period?", "I worked ___ days in the relevant unsigned period.", "Check attendance and distinguish workdays from calendar days."),
+    ),
+    "restricted_work": (
+        ("竞业条款限制什么", "限制去哪类公司、哪个地区、多久？如果已经离职，有没有约定和实付补偿？", "竞业限制约定的行业、地域和期限为___，我的岗位接触信息为___，离职后补偿的约定和支付情况为___。", "可先找竞业条款和补偿流水。"),
+        ("What does the restriction cover?", "Which jobs, locations and dates are restricted? What post-employment payments were agreed and made?", "The restrictions cover ___ for ___. The information I accessed and compensation agreed and paid were ___.", "Check the clause and bank records."),
+    ),
+    "extension_decision": (
+        ("留薪期有没有获批延长", "除了医院病休证明，市级劳动能力鉴定委员会是否确认延长？延长到哪天？", "已认定工伤，原停工留薪期至___。劳动能力鉴定委员会对延长申请的处理结果为___。", "可准备工伤认定、病历、申请回执和鉴定结论。"),
+        ("Was paid medical leave extended?", "Beyond the medical certificate, did the work-capacity committee confirm an extension and end date?", "Work injury was recognized and paid medical leave ran to ___. The committee decided ___ on my extension.", "Keep the injury decision, medical records and the committee's decision."),
+    ),
     "overtime_hours": (
         ("哪天多干了几小时", "是平时下班后、周末，还是法定节假日？大概多干了多久？", "___期间，工作日延时加班合计___小时、休息日加班合计___小时、法定节假日加班合计___小时。", "先挑一周的排班表或打卡记录举例。"),
         ("When and how long?", "Was it after work, on rest days, or on public holidays? How much extra time roughly?", "For ___, I worked ___ extra workday hours, ___ rest-day hours, and ___ holiday hours.", "Start with one week of schedules or clock records."),

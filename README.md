@@ -30,6 +30,7 @@ python run_tests.py          # 跑测试（零安装，见下一节）
 | 要录演示视频的人 | [`docs/demo_script.md`](docs/demo_script.md)（5 分钟逐句分镜 + 断网预案） |
 | 要彩排答辩的人 | [`docs/rehearsal.md`](docs/rehearsal.md)（3 遍演练清单 + 8 个必被问的问题） |
 | 想复现数字的人 | [`docs/eval_report.md`](docs/eval_report.md) + [`docs/ablation.md`](docs/ablation.md) |
+| 想复测真实案例和口语识别的人 | [案例训练与批量检测报告](docs/case_data_audit.md) |
 
 ## 免费云端部署（Render）
 

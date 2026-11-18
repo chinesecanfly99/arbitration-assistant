@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import calendar
 import re
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from .calc import DAILY_WAGE_DIVISOR, ClaimInput, Policy, economy_compensation
-from .dates import months_between
+from .calc import DAILY_WAGE_DIVISOR, ClaimInput, Policy, double_wage, economy_compensation
+from .dates import add_months, days_inclusive, months_between
+from .eligibility_review import review_prerequisites
 from .extract import _cn_int
 from .spoken_wage import AMOUNT, COUNT, SPACE, clean_dictation, parse_amount, stated_unpaid_total
 
@@ -25,6 +26,7 @@ PARTIAL_PAY_PERIOD = re.compile(
     r"|(?:工作|上班|干|做)(?:到|至)月中|只干到.{0,6}月中"
 )
 PAY_DAYS = re.compile(rf"(?:应计薪|计薪|应付工资的){SPACE}(?:是|为|有|共|合计)?{SPACE}({COUNT}|\d{{1,2}}\.\d)\s*天")
+UNSIGNED_DAYS = re.compile(rf"(?:未签(?:合同)?期间|未签期|二倍工资对应期间){SPACE}实际(?:工作|出勤){SPACE}({COUNT})\s*(?:个)?(?:工作日|天)")
 # A same-period payment figure must be tied to the current wage dispute.
 PARTIAL_RECEIVED = re.compile(rf"(?:本期|当月|该月|这个月|最后(?:半个|一个|一)月)(?:工资)?{SPACE}(?:实际已发|已发|实发|已付|已领)(?:了)?{SPACE}{AMOUNT}")
 NONE_RECEIVED = re.compile(
@@ -127,9 +129,43 @@ def _recognition_status(text: str) -> str | None:
         return "not_filed"
     if re.search(r"已申请|已提交|正在申请|正在认定", text) and "工伤" in text:
         return "pending"
-    if re.search(r"已认定.{0,3}工伤|已拿到工伤认定书|人社部门认定为工伤", text):
+    if re.search(r"已(?:被)?认定.{0,3}工伤|已拿到工伤认定书|人社部门认定为工伤", text):
         return "recognized"
     return None
+
+
+def _short_contract_period(text: str, fields: dict, evidence: dict, sources: dict) -> dict | None:
+    hire, end = fields.get("hire_date"), fields.get("end_date")
+    if sources.get("hire_date") != "confirmed" and "推定" in evidence.get("hire_date", ""):
+        window = _hire_window(text)
+        hire = window[0] if window and window[0] == window[1] else None
+    if not hire or not end or sources.get("end_date") == "assumed" or fields.get("has_written_contract") is not False:
+        return None
+    if "推定" in evidence.get("end_date", "") and sources.get("end_date") != "confirmed":
+        return None
+    start = add_months(hire, 1) + timedelta(days=1)
+    length = days_inclusive(start, end)
+    if not 0 < length < 30:
+        return None
+    days = UNSIGNED_DAYS.search(text)
+    workdays = _cn_int(days[1]) if days else None
+    if workdays is not None and not 0 <= workdays <= length:
+        workdays = None
+    wage = fields.get("monthly_wage")
+    estimate = round(Decimal(str(wage)) * workdays / Decimal(str(DAILY_WAGE_DIVISOR)), 2) if wage and workdays is not None else None
+    return {"start": start, "end": end, "workdays": workdays, "estimate": estimate}
+
+
+def _unsigned_end_range(fields: dict, evidence: dict, sources: dict) -> list[float] | None:
+    hire, end, wage = (fields.get(key) for key in ("hire_date", "end_date", "monthly_wage"))
+    if not hire or not end or not wage or fields.get("has_written_contract") is not False:
+        return None
+    if sources.get("end_date") == "confirmed" or "按月末计" not in evidence.get("end_date", ""):
+        return None
+    results = [double_wage(ClaimInput(hire, possible_end, wage, has_written_contract=False), Policy())
+               for possible_end in (max(hire, end.replace(day=1)), end)]
+    amounts = [item.amount if item else 0.0 for item in results]
+    return amounts if amounts[0] != amounts[1] else None
 
 
 def review_issues(story: str, fields: dict, evidence: dict, sources: dict, causes: list[str],
@@ -143,10 +179,18 @@ def review_issues(story: str, fields: dict, evidence: dict, sources: dict, cause
     uncertain_year = window and window[0].year == window[1].year and (window[1] - window[0]).days >= 364
     reasons = [key for key, pattern in REASONS.items() if re.search(pattern, text)] if dismissal else []
     competing_reasons = len(reasons) > 1
-    if not causes or not (
+    prerequisites = review_prerequisites(text, causes, administrative)
+    limited_contract = _short_contract_period(text, fields, evidence, sources) if "double_wage" in causes else None
+    unsigned_range = _unsigned_end_range(fields, evidence, sources) if "double_wage" in causes and not limited_contract else None
+    if limited_contract or unsigned_range:
+        contract = prerequisites["contract"] or {"other_agreement": False, "refusal": False, "terms_described": False}
+        contract["partial"] = limited_contract
+        contract["uncertain_end"] = unsigned_range
+        prerequisites["contract"] = contract
+    if not any(prerequisites.values()) and (not causes or not (
         administrative or partial or (dismissal and (uncertain_year or (years and suspect_start) or competing_reasons))
         or (injury and dismissal and unpaid)
-    ):
+    )):
         return None
 
     end = fields.get("end_date")
@@ -176,12 +220,28 @@ def review_issues(story: str, fields: dict, evidence: dict, sources: dict, cause
     recognition = _recognition_status(text) if injury else None
     scenarios = None
     wage = fields.get("monthly_wage")
-    if dismissal and window and end and end >= window[1] and wage and (not suspect_start or uncertain_year):
+    if dismissal and not prerequisites["employment"] and window and end and end >= window[1] and wage and (not suspect_start or uncertain_year):
         inputs = [ClaimInput(start, end, wage, social_avg_wage=city_average) for start in (window[1], window[0])]
         amounts = [economy_compensation(inp, Policy()).amount for inp in inputs]
         scenarios = {"n": amounts, "2n": [round(amount * 2, 2) for amount in amounts]}
     pay = _pay_review(text, fields, sources, partial) if unpaid else None
     prompts = []
+    employment = prerequisites["employment"]
+    contract = prerequisites["contract"]
+    if employment and (employment["multiple"] or not (employment["management"] or employment["autonomy"])):
+        prompts.append("work_management")
+    if contract and contract["other_agreement"] and not contract["terms_described"]:
+        prompts.append("agreement_contents")
+    if contract and contract["refusal"]:
+        prompts.append("signing_record")
+    if limited_contract and limited_contract["workdays"] is None:
+        prompts.append("unsigned_workdays")
+    if unsigned_range and not dismissal:
+        prompts.append("end_date")
+    if prerequisites["noncompete"]:
+        prompts.append("restricted_work")
+    if prerequisites["injury_extension"] and not re.search(r"劳动能力鉴定委员会.{0,10}(?:已|不|未|没有)确认", text):
+        prompts.append("extension_decision")
     if dismissal and (window is None or window[0] != window[1] or suspect_start):
         prompts.append("hire_date")
     if dismissal and not end:
@@ -195,6 +255,7 @@ def review_issues(story: str, fields: dict, evidence: dict, sources: dict, cause
     if injury and not recognition:
         prompts.append("injury_recognition")
     return {
+        **prerequisites,
         "dismissal": dismissal, "pay": pay, "injury": injury, "administrative": administrative,
         "start_window": window, "suspect_start": bool(suspect_start), "reported_years": years,
         "end": end, "departure": departure, "end_needs_review": end_needs_review,
@@ -205,6 +266,17 @@ def review_issues(story: str, fields: dict, evidence: dict, sources: dict, cause
 
 def review_lines_zh(review: dict) -> list[str]:
     lines = []
+    if review["employment"]:
+        lines.append("根据实际用工核对劳动关系。分别确认签约、用工管理和支付主体，保留派单、考勤及支付记录。")
+    if review["contract"]:
+        lines.append("二倍工资要核对书面协议的实际内容、未签原因、单位通知和真实用工期间。")
+        partial = review["contract"].get("partial")
+        if partial and partial["estimate"] is not None:
+            lines.append(f"所填不满整月的实际工作日对应二倍工资差额暂估 {partial['estimate']:,.2f} 元。")
+    if review["noncompete"]:
+        lines.append("竞业限制先核对实际接触的保密事项、适用范围、期限及离职后补偿。")
+    if review["social_loss"]:
+        lines.append("区分社保补办与待遇损失、垫付款返还。分别核对参保记录及损失材料。")
     pay = review["pay"]
     if pay and pay["difference"] is None:
         lines.append("欠薪可按本期应发与同口径已发金额核对。")
@@ -221,4 +293,6 @@ def review_lines_zh(review: dict) -> list[str]:
         lines.append("解除争议需核对工龄、解除生效日、当期工资基数和解除理由。")
     if review["injury"]:
         lines.append("受伤相关的工伤认定向当地人社部门办理，可按认定和治疗资料核对待遇。")
+    if review["injury_extension"]:
+        lines.append("延长停工留薪期需核对设区的市级劳动能力鉴定委员会的确认。")
     return lines

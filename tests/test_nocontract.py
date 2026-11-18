@@ -31,6 +31,13 @@ def test_never_signed_capped_at_11_months():
     assert "第 82 条" in item.basis
 
 
+def test_unsigned_period_ends_when_employment_ends():
+    inp = make(hire_date=date(2024, 1, 10), end_date=date(2024, 3, 15), monthly_wage=7000)
+    item = double_wage(inp, Policy())
+    assert item.amount == 7000.0
+    assert "2024-03-15" in item.formula
+
+
 def test_signed_after_four_months():
     item = double_wage(make(contract_signed_date=date(2024, 6, 1)), Policy())
     # 2024-02-02 ~ 2024-05-31 = 120 天 = 4 个月

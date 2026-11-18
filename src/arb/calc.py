@@ -166,9 +166,9 @@ def double_wage(inp: ClaimInput, policy: Policy) -> Optional[Item]:
 
     if inp.contract_signed_date is not None:
         end = inp.contract_signed_date - timedelta(days=1)
-        end = min(end, hard_end)
+        end = min(end, hard_end, inp.end_date)
     else:
-        end = hard_end
+        end = min(hard_end, inp.end_date)
 
     if end < start:
         return None

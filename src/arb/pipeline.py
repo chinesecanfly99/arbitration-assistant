@@ -252,6 +252,8 @@ def analyze(
         }
 
     if issue_review:
+        if issue_review["social_loss"]:
+            scope_assessment.update(kind="mixed", score=65)
         window = issue_review["start_window"]
         payment = issue_review["pay"]
         # These fields feed the completeness view. Do not present the generic parser's guesses as facts.

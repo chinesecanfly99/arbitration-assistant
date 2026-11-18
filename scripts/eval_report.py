@@ -81,6 +81,7 @@ def main() -> None:
     fails: list[tuple[str, str, str]] = []
     strict_ok = 0
     loose_ok = 0
+    amount_waiting: list[str] = []
     annual_unknown = 0
     errors: list[float] = []
     red_lines = 0
@@ -116,6 +117,9 @@ def main() -> None:
             strict_ok += 1
         r = analyze(c["story"], today=TODAY, mode="best_effort")
         if r["status"] != "ok":
+            contract = (r.get("issue_review") or {}).get("contract") or {}
+            if contract.get("partial") or contract.get("uncertain_end"):
+                amount_waiting.append(c["id"])
             continue
         if amount_matches(c["story"], r, c["expected"]):
             loose_ok += 1
@@ -267,6 +271,8 @@ def main() -> None:
     lines.append("| --- | --- | --- |")
     lines.append(f"| 严格模式可自足 | {strict_ok}/{n} | 信息够、直接出金额 |")
     lines.append(f"| 试算模式金额命中 | {loose_ok}/{n}（{loose_ok/n:.0%}） | 与金标准误差 <1 元 |")
+    if amount_waiting:
+        lines.append(f"| 二倍工资等待日期或实际工作日 | {len(amount_waiting)} 条 | {'、'.join(amount_waiting)} 转为分项核对 |")
     lines.append(
         f"| 其中「故事没说年假天数」 | {annual_unknown} 条 | 两边都剔掉年假项再比（系统应追问天数，不该猜） |"
     )

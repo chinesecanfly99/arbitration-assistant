@@ -70,9 +70,13 @@ def test_every_expected_item_has_citable_basis(cases):
             assert it["basis"].startswith("《"), f"{c['id']} 的 {it['name']} 无法条依据"
 
 
-def test_amounts_positive(cases):
+def test_expected_amounts_match_reference_coverage(cases):
     for c in cases:
-        assert c["expected"]["total"] > 0, f"{c['id']} 金额为 0，案例设计有问题"
+        if c["id"] == "c28":
+            # There are no known full months; the input omits actual workdays.
+            assert c["expected"]["total"] == 0 and not c["expected"]["items"]
+        else:
+            assert c["expected"]["total"] > 0, f"{c['id']} 金额为 0，案例设计有问题"
 
 
 def test_story_mentions_gold_dates(cases):

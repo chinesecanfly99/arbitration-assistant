@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .eligibility_review import NONCOMPETE, PLATFORM, RELATIONSHIP_ASK
 from .spoken_wage import spoken_wage_issue
 
 # 明确的"不归仲裁管"事项：命中即指路
@@ -25,7 +26,11 @@ OUT_OF_SCOPE = [
     },
     {
         "key": "社保补缴",
-        "patterns": [r"社保.{0,10}(?:没交|未缴|补缴|断缴|能补|可以补)", r"(?:没|未|不).{0,8}(?:交|缴).{0,3}社保", r"补缴.{0,4}社保", r"五险.{0,4}(?:没|未)", r"(?i)\bsocial\s+insurance\b"],
+        "patterns": [
+            r"社保.{0,10}(?:没交|未缴|补缴|断缴|能补|可以补)",
+            r"(?:没|未|不|少).{0,8}(?:交|缴)(?:纳)?[^，。]{0,5}(?:社保|社会保险|养老保险)",
+            r"补缴.{0,4}社保|五险.{0,4}(?:没|未)|(?i:\bsocial\s+insurance\b)",
+        ],
         "redirect": "社保补缴不属于仲裁受理范围，走行政征收：社保征收机构 / 12333。带：劳动合同、工资流水、社保缴费记录。",
     },
     {
@@ -50,7 +55,7 @@ RED_LINE_PATTERNS = [
 # 案由关键词（按优先级从高到低匹配）
 CAUSE_RULES = [
     ("illegal_dismissal", [r"违法解除", r"违法辞退", r"口头辞退", r"被辞", r"让我(?:当天|立刻|马上|明天)?走", r"不要我了", r"开除", r"把我(?:辞|开|炒)", r"(?:说|让我|通知我|叫我).{0,8}(?:不用(?:再)?来了|别再?来|不用上班了)", r"(?i)\b(?:fired|dismissed|wrongful\s+termination|illegal\s+dismissal|laid\s+off)\b"]),
-    ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"合同.{0,5}(?:都|一直)?没(?:有)?签", r"一直没(?:有)?(?:给|跟|和)我签", r"二倍工资", r"双倍工资", r"补签", r"一直没签", r"两份都收走", r"都收走了", r"(?i)\b(?:no|without|never\s+signed)\b.{0,20}\bcontract\b"]),
+    ("double_wage", [r"没签.{0,6}合同", r"未签.{0,6}劳动合同", r"合同.{0,5}(?:都|一直)?没(?:有)?签", r"一直没(?:有)?(?:给|跟|和)我签", r"[二双两]倍(?:工资|工钱|薪资)", r"补签", r"一直没签", r"两份都收走", r"都收走了", r"(?i)\b(?:no|without|never\s+signed)\b.{0,20}\bcontract\b"]),
     ("overtime", [r"加班", r"周末上班", r"(?:周[六日]|星期[六日]|休息日).{0,7}(?:还要|照常|也要)(?:来|上班)", r"(?:每天|经常|下班后).{0,12}(?:干到|做到|忙到)(?:很晚|晚上|半夜)", r"节假日上班", r"法定(?:节假日|假日)上班", r"休假日上班", r"排班", r"(?i)\bovertime\b"]),
     ("annual_leave", [r"年假", r"年休假", r"(?i)\bannual\s+leave\b"]),
     ("unpaid_wage", [
@@ -148,8 +153,19 @@ RED_LINE_REQUESTS = [
 
 def _labor_causes(story: str) -> list[str]:
     causes = [name for name, pats in CAUSE_RULES if any(re.search(p, story) for p in pats)]
-    if "unpaid_wage" not in causes and spoken_wage_issue(story):
+    if "unpaid_wage" not in causes and (
+        spoken_wage_issue(story) or "欠薪" in story
+        or re.search(r"(?:工资|工钱).{0,10}(?:给过|已发|发过).{0,12}(?:我|本人)(?:没|未)收到", story)
+    ):
         causes.append("unpaid_wage")
+    if "illegal_dismissal" not in causes and re.search(
+        r"(?:公司|单位|老板).{0,6}(?:便|就|遂|突然|直接|因此)解除(?:了)?(?:我|劳动合同)", story
+    ):
+        causes.append("illegal_dismissal")
+    if RELATIONSHIP_ASK.search(story) or ("double_wage" in causes and PLATFORM.search(story)):
+        causes.append("employment_relationship")
+    if NONCOMPETE.search(story):
+        causes.append("noncompete")
     return causes
 
 
